@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#020b18">
+  <title>DL RETRO GAMES | Administração</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="login-screen" class="login-wrap">
+    <form id="login-form" class="login-card">
+      <div class="brand-mark">DL</div>
+      <p class="eyebrow">RETRO GAMES</p>
+      <h1>Painel administrativo</h1>
+      <p class="muted">Entre com sua conta de administrador.</p>
+      <label>Usuário<input name="username" autocomplete="username" required></label>
+      <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">ENTRAR</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </form>
+  </div>
+
+  <div id="app" class="shell hidden">
+    <aside class="sidebar">
+      <div class="logo"><b>DL</b><span>RETRO GAMES</span></div>
+      <nav>
+        <a class="active" href="#dashboard">⌂ &nbsp; Dashboard</a>
+        <a href="#usuarios">♙ &nbsp; Usuários</a>
+        <a href="#gerar">✚ &nbsp; Gerar acesso</a>
+        <a href="#seguranca">◇ &nbsp; Segurança</a>
+      </nav>
+      <div class="side-bottom">SISTEMA DE GERENCIAMENTO<br><small>Versão inicial 1.0</small></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><p class="eyebrow">DL RETRO GAMES</p><h1>Painel administrativo</h1><p class="muted">Gerencie clientes, planos e acessos.</p></div>
+        <button id="logout" class="secondary">Sair</button>
+      </header>
+
+      <section id="dashboard" class="stats">
+        <article class="stat"><span>Usuários totais</span><strong id="total">0</strong></article>
+        <article class="stat"><span>Planos VIP ativos</span><strong id="vip">0</strong></article>
+        <article class="stat"><span>Planos grátis ativos</span><strong id="free">0</strong></article>
+        <article class="stat"><span>Expirando / expirados</span><strong id="expired">0</strong></article>
+      </section>
+
+      <section id="gerar" class="panel create-panel">
+        <div><p class="eyebrow">NOVO CLIENTE</p><h2>Gerar novo acesso</h2></div>
+        <form id="create-form" class="create-form">
+          <label>Plano<select name="plan"><option value="VIP">VIP</option><option value="GRATIS">Grátis</option></select></label>
+          <label>Validade<select name="days"><option value="30">30 dias</option><option value="15">15 dias</option><option value="7">7 dias</option><option value="90">90 dias</option><option value="365">365 dias</option><option value="0">Sem validade (Grátis)</option></select></label>
+          <label class="wide">Nome / observação (opcional)<input name="note" maxlength="100" placeholder="Ex.: João - pacote mensal"></label>
+          <button class="primary" type="submit">GERAR USUÁRIO E SENHA</button>
+        </form>
+        <div id="generated" class="generated hidden" aria-live="polite"></div>
+        <p id="create-error" class="error" role="alert"></p>
+      </section>
+
+      <section id="usuarios" class="panel">
+        <div class="section-head"><div><p class="eyebrow">CLIENTES</p><h2>Lista de usuários</h2></div><input id="search" class="search" placeholder="Buscar usuário ou observação..."></div>
+        <div class="table-wrap"><table><thead><tr><th>Usuário</th><th>Plano</th><th>Validade</th><th>Status</th><th>Ações</th></tr></thead><tbody id="users-body"><tr><td colspan="5">Carregando...</td></tr></tbody></table></div>
+      </section>
+
+      <section id="seguranca" class="security-note panel">
+        <h2>Segurança</h2>
+        <p>Este painel exige sessão administrativa no servidor. As senhas dos clientes são armazenadas como hashes, e não em texto aberto. Mantenha os Secrets do Cloudflare privados e nunca publique credenciais no HTML.</p>
+      </section>
+      <p id="notice" class="notice" role="status"></p>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
