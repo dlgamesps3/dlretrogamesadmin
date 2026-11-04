@@ -1,0 +1,8 @@
+name = "dl-retro-games-admin"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dl-retro-games"
+database_id = "COLOQUE_AQUI_O_ID_DO_BANCO"
