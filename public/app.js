@@ -1,5 +1,5 @@
 
-const $ = s => document.querySelector(s);
+const $ = (s) => document.querySelector(s);
 
 const loginScreen = $("#login-screen");
 const app = $("#app");
@@ -7,22 +7,21 @@ const app = $("#app");
 let users = [];
 
 async function api(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-
-  if (!(options.body instanceof FormData)) {
-    headers["Content-Type"] = "application/json";
-  }
+  const isFormData = options.body instanceof FormData;
 
   const response = await fetch(path, {
     ...options,
-    headers,
+    headers: {
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(options.headers || {})
+    },
     credentials: "same-origin"
   });
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || "Não foi possível concluir a operação.");
+    throw new Error(data.error || "Ocorreu um erro.");
   }
 
   return data;
@@ -31,6 +30,7 @@ async function api(path, options = {}) {
 function showApp() {
   loginScreen.classList.add("hidden");
   app.classList.remove("hidden");
+  createGamesArea();
 }
 
 function showLogin() {
@@ -38,374 +38,369 @@ function showLogin() {
   loginScreen.classList.remove("hidden");
 }
 
-function escapeHtml(value = "") {
-  return String(value).replace(/[&<>"']/g, c => ({
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
     '"': "&quot;",
-    "'": "&#39;"
-  }[c]));
+    "'": "&#039;"
+  })[char]);
 }
 
-function dateLabel(value) {
-  if (!value) return "Sem validade";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString("pt-BR");
+function dateLabel(date) {
+  if (!date) return "Sem validade";
+  const parsed = new Date(date);
+  return Number.isNaN(parsed.getTime())
+    ? "Sem validade"
+    : parsed.toLocaleDateString("pt-BR");
 }
 
-function statusOf(u) {
-  if (u.blocked) return ["BLOQUEADO", "blocked-pill"];
-  if (u.expires_at && new Date(u.expires_at) < new Date()) {
-    return ["EXPIRADO", "expired-pill"];
+function statusOf(user) {
+  if (user.blocked) return "Bloqueado";
+  if (user.expiresAt && new Date(user.expiresAt) < new Date()) {
+    return "Expirado";
   }
-  return ["ATIVO", "active-pill"];
+  return "Ativo";
 }
-
-// =========================
-// USUÁRIOS
-// =========================
-
-async function loadUsers() {
-  const data = await api("/api/admin/users");
-  users = data.users || [];
-
-  $("#total").textContent = users.length;
-  $("#vip").textContent = users.filter(
-    u => u.plan === "VIP" && statusOf(u)[0] === "ATIVO"
-  ).length;
-  $("#free").textContent = users.filter(
-    u => u.plan === "GRATIS" && statusOf(u)[0] === "ATIVO"
-  ).length;
-  $("#expired").textContent = users.filter(
-    u => statusOf(u)[0] === "EXPIRADO"
-  ).length;
-
-  renderUsers();
-}
-
-function renderUsers() {
-  const term = $("#search").value.toLowerCase();
-
-  const filtered = users.filter(u =>
-    (u.username + " " + (u.note || "")).toLowerCase().includes(term)
-  );
-
-  $("#users-body").innerHTML = filtered.length
-    ? filtered.map(u => {
-        const [label, cls] = statusOf(u);
-
-        return `<tr>
-          <td><b>${escapeHtml(u.username)}</b><br>
-          <small>${escapeHtml(u.note || "")}</small></td>
-          <td>${u.plan === "VIP" ? "VIP" : "Grátis"}</td>
-          <td>${dateLabel(u.expires_at)}</td>
-          <td><span class="pill ${cls}">${label}</span></td>
-          <td><div class="actions">
-            <button data-action="renew" data-id="${u.id}">Renovar 30d</button>
-            <button data-action="toggle" data-id="${u.id}">
-              ${u.blocked ? "Liberar" : "Bloquear"}
-            </button>
-            <button class="danger" data-action="delete" data-id="${u.id}">Excluir</button>
-          </div></td>
-        </tr>`;
-      }).join("")
-    : '<tr><td colspan="5">Nenhum usuário encontrado.</td></tr>';
-}
-
-// =========================
-// LOGIN
-// =========================
-
-const loginForm = $("#login-form");
-
-loginForm.addEventListener("submit", async e => {
-  e.preventDefault();
-  $("#login-error").textContent = "";
-
-  const form = new FormData(loginForm);
-
-  try {
-    await api("/api/admin/login", {
-      method: "POST",
-      body: JSON.stringify({
-        username: form.get("username"),
-        password: form.get("password")
-      })
-    });
-
-    loginForm.reset();
-    showApp();
-    await loadUsers();
-
-  } catch (err) {
-    $("#login-error").textContent = err.message;
-  }
-});
-
-// =========================
-// SAIR
-// =========================
-
-$("#logout").addEventListener("click", async () => {
-  try {
-    await api("/api/admin/logout", {
-      method: "POST",
-      body: "{}"
-    });
-  } finally {
-    showLogin();
-  }
-});
-
-// =========================
-// GERAR ACESSO
-// =========================
-
-const createForm = $("#create-form");
-
-createForm.addEventListener("submit", async e => {
-  e.preventDefault();
-
-  $("#create-error").textContent = "";
-  $("#generated").classList.add("hidden");
-
-  const f = new FormData(createForm);
-
-  try {
-    const data = await api("/api/admin/users", {
-      method: "POST",
-      body: JSON.stringify({
-        plan: f.get("plan"),
-        days: Number(f.get("days")),
-        note: f.get("note")
-      })
-    });
-
-    $("#generated").innerHTML = `
-      <strong>ACESSO CRIADO!</strong>
-      <div class="credential">
-        <span>Usuário: <b>${escapeHtml(data.username)}</b></span>
-        <button type="button" data-copy="${escapeHtml(data.username)}">Copiar</button>
-      </div>
-      <div class="credential">
-        <span>Senha: <b>${escapeHtml(data.password)}</b></span>
-        <button type="button" data-copy="${escapeHtml(data.password)}">Copiar</button>
-      </div>
-      <small>Por segurança, a senha não será exibida novamente.</small>
-    `;
-
-    $("#generated").classList.remove("hidden");
-    createForm.reset();
-    await loadUsers();
-
-  } catch (err) {
-    $("#create-error").textContent = err.message;
-  }
-});
-
-// =========================
-// AÇÕES DOS USUÁRIOS
-// =========================
-
-$("#users-body").addEventListener("click", async e => {
-  const b = e.target.closest("button[data-action]");
-  if (!b) return;
-
-  const id = b.dataset.id;
-  const action = b.dataset.action;
-
-  if (action === "delete" &&
-      !confirm("Excluir este usuário permanentemente?")) return;
-
-  try {
-    if (action === "delete") {
-      await api(`/api/admin/users/${id}`, { method: "DELETE" });
-    } else if (action === "toggle") {
-      await api(`/api/admin/users/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ action: "toggle" })
-      });
-    } else {
-      await api(`/api/admin/users/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ action: "renew", days: 30 })
-      });
-    }
-
-    $("#notice").textContent = "Alteração realizada.";
-    await loadUsers();
-
-  } catch (err) {
-    $("#notice").textContent = err.message;
-  }
-});
-
-// =========================
-// COPIAR DADOS
-// =========================
-
-$("#generated").addEventListener("click", async e => {
-  const b = e.target.closest("[data-copy]");
-  if (!b) return;
-
-  try {
-    await navigator.clipboard.writeText(b.dataset.copy);
-    b.textContent = "Copiado!";
-  } catch {
-    $("#create-error").textContent = "Não foi possível copiar automaticamente.";
-  }
-});
-
-$("#search").addEventListener("input", renderUsers);
-
-// =========================
-// ÁREA DE JOGOS
-// =========================
 
 function createGamesArea() {
-  if ($("#games-manager")) return;
+  if ($("#games-panel")) return;
 
-  const section = document.createElement("section");
-  section.id = "games-manager";
-  section.className = "panel";
+  const security = $("#seguranca");
+  if (!security) return;
 
-  section.innerHTML = `
+  const panel = document.createElement("section");
+  panel.id = "games-panel";
+  panel.className = "panel";
+
+  panel.innerHTML = `
     <div class="section-head">
       <div>
         <p class="eyebrow">CATÁLOGO</p>
         <h2>Adicionar jogo</h2>
-        <p class="muted">Envie o ZIP com o emulador e a ROM.</p>
+        <p class="muted">
+          Cadastre o download, o jogo online ou os dois juntos.
+        </p>
       </div>
     </div>
 
     <form id="game-form" class="create-form">
       <label class="wide">
         Nome do jogo
-        <input name="name" required maxlength="100"
-          placeholder="Ex.: Aladdin">
+        <input name="name" required
+          placeholder="Ex.: Super Mario World">
       </label>
 
       <label>
         Console
         <select name="console" required>
-          <option value="SNES">Super Nintendo</option>
+          <option value="SNES">Super Nintendo (SNES)</option>
           <option value="PS1">PlayStation 1</option>
           <option value="PS2">PlayStation 2</option>
-          <option value="MEGA-DRIVE">Mega Drive</option>
+          <option value="Mega Drive">Mega Drive</option>
           <option value="GBA">Game Boy Advance</option>
+          <option value="NES">Nintendo (NES)</option>
         </select>
       </label>
 
       <label>
-        Arquivo ZIP
-        <input type="file" name="zip" accept=".zip,application/zip" required>
+        Capa do jogo
+        <input name="cover" type="file"
+          accept="image/png,image/jpeg,image/webp">
       </label>
 
-      <button class="primary" type="submit">ENVIAR E PUBLICAR JOGO</button>
+      <div class="wide">
+        <p class="eyebrow">OPÇÕES DE PUBLICAÇÃO</p>
+      </div>
+
+      <label class="wide">
+        Link para download (opcional)
+        <input name="downloadUrl" type="url"
+          placeholder="https://...">
+      </label>
+
+      <label class="wide">
+        ZIP para jogar online (opcional)
+        <input name="zip" type="file" accept=".zip,application/zip">
+      </label>
+
+      <p class="muted wide">
+        Você pode preencher somente o download, somente o ZIP
+        ou os dois. Para publicar online, o ZIP deve conter
+        o index.html e a ROM do jogo.
+      </p>
+
+      <button class="primary wide" type="submit">
+        PUBLICAR JOGO
+      </button>
     </form>
 
-    <p id="game-message" class="notice" role="status"></p>
-
-    <div class="security-note">
-      <p>Destino: <b>pages/jogos-online/</b></p>
-      <p>O ZIP deve conter o index.html do emulador e a ROM do jogo.</p>
-    </div>
+    <div id="game-result" class="generated hidden"
+      aria-live="polite"></div>
+    <p id="game-error" class="error" role="alert"></p>
   `;
 
-  $("#seguranca").before(section);
-
-  const nav = document.querySelector(".sidebar nav");
-  if (nav && !nav.querySelector('[href="#games-manager"]')) {
-    const link = document.createElement("a");
-    link.href = "#games-manager";
-    link.textContent = "🎮  Jogos";
-    nav.appendChild(link);
-  }
+  security.insertAdjacentElement("afterend", panel);
 
   $("#game-form").addEventListener("submit", uploadGame);
 }
 
-async function uploadGame(e) {
-  e.preventDefault();
+async function uploadGame(event) {
+  event.preventDefault();
 
-  const form = e.currentTarget;
-  const message = $("#game-message");
+  const form = event.currentTarget;
   const button = form.querySelector('button[type="submit"]');
-  const data = new FormData(form);
+  const result = $("#game-result");
+  const error = $("#game-error");
 
-  const file = data.get("zip");
-  const name = data.get("name").trim();
+  error.textContent = "";
+  result.classList.add("hidden");
 
-  if (!file || !file.name.toLowerCase().endsWith(".zip")) {
-    message.textContent = "Selecione um arquivo ZIP válido.";
+  const name = form.elements.name.value.trim();
+  const downloadUrl = form.elements.downloadUrl.value.trim();
+  const zip = form.elements.zip.files[0];
+  const cover = form.elements.cover.files[0];
+
+  if (!downloadUrl && !zip) {
+    error.textContent =
+      "Informe um link de download ou selecione um ZIP para jogar online.";
     return;
   }
 
-  const safeName = name
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9_-]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-
-  if (!safeName) {
-    message.textContent = "Digite um nome válido para o jogo.";
+  if (downloadUrl && !/^https?:\/\//i.test(downloadUrl)) {
+    error.textContent = "Informe um link de download válido.";
     return;
   }
 
-  data.set("folder", safeName);
+  if (zip && !zip.name.toLowerCase().endsWith(".zip")) {
+    error.textContent = "Selecione um arquivo ZIP.";
+    return;
+  }
+
+  const data = new FormData();
+  data.append("name", name);
+  data.append("console", form.elements.console.value);
+
+  if (downloadUrl) data.append("downloadUrl", downloadUrl);
+  if (zip) data.append("zip", zip);
+  if (cover) data.append("cover", cover);
 
   button.disabled = true;
   button.textContent = "ENVIANDO...";
-  message.textContent = "Preparando envio dos arquivos...";
 
   try {
-    const result = await api("/api/admin/games", {
+    const response = await api("/api/admin/games", {
       method: "POST",
       body: data
     });
 
-    message.textContent =
-      result.message || "Jogo enviado com sucesso!";
+    result.innerHTML = `
+      <strong>Jogo enviado!</strong>
+      ${response.onlineUrl ? `
+        <p>Jogar online:
+          <a href="${escapeHtml(response.onlineUrl)}" target="_blank">
+            ${escapeHtml(response.onlineUrl)}
+          </a>
+        </p>` : ""}
+      ${response.downloadUrl ? `
+        <p>Download:
+          <a href="${escapeHtml(response.downloadUrl)}" target="_blank">
+            Abrir link de download
+          </a>
+        </p>` : ""}
+    `;
 
-    if (result.url) {
-      message.textContent += " Link: " + result.url;
-    }
-
+    result.classList.remove("hidden");
     form.reset();
-
   } catch (err) {
-    message.textContent = err.message;
+    error.textContent = err.message;
   } finally {
     button.disabled = false;
-    button.textContent = "ENVIAR E PUBLICAR JOGO";
+    button.textContent = "PUBLICAR JOGO";
   }
 }
 
-// =========================
-// SESSÃO
-// =========================
+async function loadUsers() {
+  try {
+    const data = await api("/api/admin/users");
+    users = data.users || [];
+    renderUsers();
+    updateStats();
+  } catch (err) {
+    $("#users-body").innerHTML =
+      `<tr><td colspan="5">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
 
-(async () => {
+function updateStats() {
+  $("#total").textContent = users.length;
+  $("#vip").textContent = users.filter(u =>
+    u.plan === "VIP" && statusOf(u) === "Ativo"
+  ).length;
+  $("#free").textContent = users.filter(u =>
+    u.plan === "GRATIS" && statusOf(u) === "Ativo"
+  ).length;
+  $("#expired").textContent = users.filter(u =>
+    statusOf(u) === "Expirado"
+  ).length;
+}
+
+function renderUsers() {
+  const body = $("#users-body");
+
+  if (!users.length) {
+    body.innerHTML =
+      '<tr><td colspan="5">Nenhum usuário cadastrado.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = users.map(user => `
+    <tr>
+      <td>
+        <strong>${escapeHtml(user.username)}</strong>
+        ${user.note ? `<br><small>${escapeHtml(user.note)}</small>` : ""}
+      </td>
+      <td>${escapeHtml(user.plan)}</td>
+      <td>${escapeHtml(dateLabel(user.expiresAt))}</td>
+      <td>${escapeHtml(statusOf(user))}</td>
+      <td>
+        <div class="actions">
+          <button data-action="toggle" data-id="${escapeHtml(user.id)}">
+            ${user.blocked ? "Liberar" : "Bloquear"}
+          </button>
+          <button data-action="renew" data-id="${escapeHtml(user.id)}">
+            Renovar
+          </button>
+          <button data-action="delete" data-id="${escapeHtml(user.id)}">
+            Excluir
+          </button>
+        </div>
+      </td>
+    </tr>
+  `).join("");
+}
+
+$("#login-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const error = $("#login-error");
+  error.textContent = "";
+
+  try {
+    await api("/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: form.username.value.trim(),
+        password: form.password.value
+      })
+    });
+
+    form.reset();
+    showApp();
+    await loadUsers();
+  } catch (err) {
+    error.textContent = err.message;
+  }
+});
+
+$("#logout").addEventListener("click", async () => {
+  try {
+    await api("/api/admin/logout", { method: "POST" });
+  } catch (err) {
+    console.error(err);
+  }
+
+  showLogin();
+});
+
+$("#create-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const error = $("#create-error");
+  const generated = $("#generated");
+  const button = form.querySelector('button[type="submit"]');
+
+  error.textContent = "";
+  generated.classList.add("hidden");
+  button.disabled = true;
+
+  try {
+    const data = await api("/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({
+        plan: form.plan.value,
+        days: Number(form.days.value),
+        note: form.note.value.trim()
+      })
+    });
+
+    generated.innerHTML = `
+      <strong>Usuário criado!</strong>
+      <p>Usuário: ${escapeHtml(data.username)}</p>
+      <p>Senha: ${escapeHtml(data.password)}</p>
+    `;
+
+    generated.classList.remove("hidden");
+    form.reset();
+    await loadUsers();
+  } catch (err) {
+    error.textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#users-body").addEventListener("click", async event => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+
+  const id = button.dataset.id;
+  const action = button.dataset.action;
+
+  try {
+    if (action === "delete") {
+      if (!confirm("Deseja realmente excluir este usuário?")) return;
+
+      await api(`/api/admin/users/${id}`, {
+        method: "DELETE"
+      });
+    } else {
+      const body = action === "toggle"
+        ? { action: "toggle" }
+        : { action: "renew", days: 30 };
+
+      await api(`/api/admin/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body)
+      });
+    }
+
+    await loadUsers();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("#search").addEventListener("input", event => {
+  const term = event.target.value.toLowerCase();
+
+  document.querySelectorAll("#users-body tr").forEach(row => {
+    row.style.display =
+      row.textContent.toLowerCase().includes(term) ? "" : "none";
+  });
+});
+
+async function checkSession() {
   try {
     await api("/api/admin/me");
     showApp();
-    createGamesArea();
     await loadUsers();
   } catch {
     showLogin();
   }
-})();
-
-if (loginForm) {
-  const originalShowApp = showApp;
-  // A área de jogos também aparece depois do login.
-  loginForm.addEventListener("submit", () => {
-    setTimeout(() => {
-      if (!app.classList.contains("hidden")) {
-        createGamesArea();
-      }
-    }, 500);
-  });
 }
 
+checkSession();
