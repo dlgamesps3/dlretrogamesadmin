@@ -25,12 +25,16 @@ function base64(bytes) {
   const chunk = 0x8000;
 
   for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(i, i + chunk)
-    );
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
 
   return btoa(binary);
+}
+
+function decodeBase64(value) {
+  const binary = atob(value.replace(/\s/g, ""));
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 async function extractZip(buffer) {
@@ -119,11 +123,11 @@ async function extractZip(buffer) {
         await new Response(stream).arrayBuffer()
       );
     } else {
-      throw new Error("Formato de compressão ZIP não suportado.");
+      throw new Error("Compressão ZIP não suportada.");
     }
 
     if (content.length > 50 * 1024 * 1024) {
-      throw new Error("Um arquivo extraído ultrapassa 50 MB.");
+      throw new Error("Um arquivo ultrapassa 50 MB.");
     }
 
     files.push({ name: filename, content });
@@ -133,27 +137,22 @@ async function extractZip(buffer) {
 }
 
 async function github(path, token, options = {}) {
-  const response = await fetch(
-    `https://api.github.com${path}`,
-    {
-      ...options,
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json",
-        "User-Agent": "DL-RETRO-GAMES",
-        ...(options.headers || {})
-      }
+  const response = await fetch(`https://api.github.com${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+      "User-Agent": "DL-RETRO-GAMES",
+      ...(options.headers || {})
     }
-  );
+  });
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(
-      data.message || "Erro ao enviar arquivos para o GitHub."
-    );
+    throw new Error(data.message || "Erro ao acessar o GitHub.");
   }
 
   return data;
@@ -166,9 +165,7 @@ export async function onRequestPost({ request, env }) {
     }
 
     if (!env.GITHUB_TOKEN) {
-      return json({
-        error: "Configure o Secret GITHUB_TOKEN no Cloudflare."
-      }, 500);
+      return json({ error: "Configure GITHUB_TOKEN no Cloudflare." }, 500);
     }
 
     const form = await request.formData();
@@ -187,14 +184,12 @@ export async function onRequestPost({ request, env }) {
       return json({ error: "Link de download inválido." }, 400);
     }
 
-    if (!zip || typeof zip.arrayBuffer !== "function") {
-      return json({
-        error: "O envio online precisa de um arquivo ZIP. O cadastro somente por download será conectado na próxima etapa."
-      }, 400);
+    if (!zip || typeof zip.arrayBuffer !== "function" || zip.size === 0) {
+      return json({ error: "Envie o ZIP do jogo." }, 400);
     }
 
     if (zip.size > 50 * 1024 * 1024) {
-      return json({ error: "O ZIP ultrapassa o limite de 50 MB." }, 400);
+      return json({ error: "O ZIP ultrapassa 50 MB." }, 400);
     }
 
     const slug = slugify(name);
@@ -226,6 +221,8 @@ export async function onRequestPost({ request, env }) {
       return json({ error: "Existem arquivos com nomes repetidos." }, 400);
     }
 
+    let coverPath = "img/capas/sem-capa.jpg";
+
     if (cover && typeof cover.arrayBuffer === "function" && cover.size > 0) {
       if (cover.size > 8 * 1024 * 1024) {
         return json({ error: "A capa ultrapassa 8 MB." }, 400);
@@ -239,6 +236,8 @@ export async function onRequestPost({ request, env }) {
       if (!ext) {
         return json({ error: "A capa precisa ser JPG, PNG ou WEBP." }, 400);
       }
+
+      coverPath = `pages/jogos-online/${slug}/capa${ext}`;
 
       files.push({
         name: `capa${ext}`,
@@ -261,6 +260,56 @@ export async function onRequestPost({ request, env }) {
       token
     );
 
+    const gamesUrl =
+      `https://${OWNER}.github.io/${REPO}/games.json`;
+
+    const onlineUrl =
+      `https://${OWNER}.github.io/${REPO}/pages/jogos-online/${slug}/`;
+
+    const coverUrl = coverPath.startsWith("pages/")
+      ? `https://${OWNER}.github.io/${REPO}/${coverPath}`
+      : `https://${OWNER}.github.io/${REPO}/${coverPath}`;
+
+    // Recupera o catálogo existente para não apagar os jogos antigos.
+    let games = [];
+
+    try {
+      const existing = await github(
+        `${apiBase}/contents/games.json?ref=${BRANCH}`,
+        token
+      );
+
+      games = JSON.parse(decodeBase64(existing.content));
+      if (!Array.isArray(games)) games = [];
+    } catch (error) {
+      if (!String(error.message).includes("Not Found")) {
+        throw error;
+      }
+    }
+
+    const newGame = {
+      name,
+      console: consoleName || "SNES",
+      onlineUrl,
+      downloadUrl: downloadUrl || "",
+      coverUrl,
+      slug
+    };
+
+    // Atualiza o jogo se já existir; caso contrário, adiciona.
+    games = games.filter(game => game.slug !== slug);
+    games.push(newGame);
+
+    const catalogBytes = new TextEncoder().encode(
+      JSON.stringify(games, null, 2)
+    );
+
+    files.push({
+      name: "games.json",
+      content: catalogBytes,
+      catalog: true
+    });
+
     const blobs = [];
 
     for (const file of files) {
@@ -273,7 +322,9 @@ export async function onRequestPost({ request, env }) {
       });
 
       blobs.push({
-        path: `pages/jogos-online/${slug}/${file.name}`,
+        path: file.catalog
+          ? "games.json"
+          : `pages/jogos-online/${slug}/${file.name}`,
         mode: "100644",
         type: "blob",
         sha: blob.sha
@@ -291,25 +342,16 @@ export async function onRequestPost({ request, env }) {
     const commit = await github(`${apiBase}/git/commits`, token, {
       method: "POST",
       body: JSON.stringify({
-        message: `Adicionar jogo: ${name}`,
+        message: `Adicionar jogo ao catálogo: ${name}`,
         tree: tree.sha,
         parents: [parentSha]
       })
     });
 
-    await github(
-      `${apiBase}/git/refs/heads/${BRANCH}`,
-      token,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          sha: commit.sha
-        })
-      }
-    );
-
-    const onlineUrl =
-      `https://${OWNER}.github.io/${REPO}/pages/jogos-online/${slug}/`;
+    await github(`${apiBase}/git/refs/heads/${BRANCH}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ sha: commit.sha })
+    });
 
     return json({
       ok: true,
@@ -317,8 +359,10 @@ export async function onRequestPost({ request, env }) {
       console: consoleName,
       onlineUrl,
       downloadUrl: downloadUrl || null,
+      coverUrl,
       folder: `pages/jogos-online/${slug}/`,
-      message: "Arquivos publicados no GitHub."
+      catalogUrl: gamesUrl,
+      message: "Jogo publicado e adicionado ao catálogo!"
     });
 
   } catch (error) {
@@ -327,4 +371,3 @@ export async function onRequestPost({ request, env }) {
     }, 500);
   }
 }
-
