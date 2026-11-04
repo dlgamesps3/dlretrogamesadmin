@@ -5,4 +5,4 @@ pages_build_output_dir = "./public"
 [[d1_databases]]
 binding = "DB"
 database_name = "dl-retro-games"
-database_id = "COLOQUE_AQUI_O_ID_DO_BANCO"
+database_id = "f672bf88-a1a7-4a42-80ac-878e9ce76623"
