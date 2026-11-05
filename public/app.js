@@ -1,4 +1,3 @@
-
 const $ = (s) => document.querySelector(s);
 
 const loginScreen = $("#login-screen");
@@ -18,12 +17,41 @@ async function api(path, options = {}) {
     credentials: "same-origin"
   });
 
-  const data = await response.json().catch(() => ({}));
+  const responseText = await response.text();
+
+  let data = {};
+
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    data = {};
+  }
 
   if (!response.ok) {
-    throw new Error(
+    const serverError =
       data.error ||
-      `Erro ${response.status}: ${response.statusText || "Falha na solicitação."}`
+      data.message ||
+      data.detail ||
+      "";
+
+    const errorMessage = serverError
+      ? String(serverError)
+      : responseText
+        ? `Resposta do servidor: ${responseText.slice(0, 500)}`
+        : `Erro HTTP ${response.status}: ${response.statusText || "Falha na solicitação."}`;
+
+    throw new Error(
+      `HTTP ${response.status}: ${errorMessage}`
+    );
+  }
+
+  if (!responseText) {
+    return {};
+  }
+
+  if (!Object.keys(data).length && responseText) {
+    throw new Error(
+      `O servidor retornou uma resposta inválida: ${responseText.slice(0, 500)}`
     );
   }
 
