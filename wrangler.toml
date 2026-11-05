@@ -6,3 +6,16 @@ pages_build_output_dir = "./public"
 binding = "DB"
 database_name = "dlretrogames"
 database_id = "f672bf88-a1a7-4a42-80ac-878e9ce76623"
+
+[vars]
+GOOGLE_REDIRECT_URI = "https://dlretrogamesadmin.pages.dev/api/drive/callback"name = "dl-retro-games-admin"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dlretrogames"
+database_id = "f672bf88-a1a7-4a42-80ac-878e9ce76623"
+
+[vars]
+GOOGLE_REDIRECT_URI = "https://dlretrogamesadmin.pages.dev/api/drive/callback"
