@@ -115,118 +115,159 @@ function isRom(filename) {
   return ROM_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
+/*
+ * BUSCA AUTOMATICAMENTE INFORMAÇÕES DO JOGO.
+ * Primeiro pesquisa na Wikipédia em português.
+ * Se não encontrar, tenta a Wikipédia em inglês.
+ */
+async function generateDescription(name, consoleName) {
+  const languages = ["pt", "en"];
+
+  for (const language of languages) {
+    try {
+      const searchUrl = new URL(
+        `https://${language}.wikipedia.org/w/api.php`
+      );
+
+      searchUrl.search = new URLSearchParams({
+        action: "query",
+        list: "search",
+        srsearch: `"${name}" ${consoleName} video game`,
+        format: "json",
+        origin: "*",
+        srlimit: "5"
+      }).toString();
+
+      const searchResponse = await fetch(searchUrl, {
+        headers: {
+          "Accept": "application/json"
+        },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (!searchResponse.ok) continue;
+
+      const searchData = await searchResponse.json();
+      const results = searchData?.query?.search || [];
+
+      if (!results.length) continue;
+
+      // Procura primeiro um resultado com o nome do jogo.
+      const normalizedName = slugify(name).replace(/_/g, "");
+
+      const result = results.find(item => {
+        const title = slugify(item.title).replace(/_/g, "");
+        return title.includes(normalizedName) ||
+          normalizedName.includes(title);
+      }) || results[0];
+
+      const pageUrl = new URL(
+        `https://${language}.wikipedia.org/w/api.php`
+      );
+
+      pageUrl.search = new URLSearchParams({
+        action: "query",
+        prop: "extracts",
+        exintro: "1",
+        explaintext: "1",
+        exchars: "1200",
+        pageids: String(result.pageid),
+        format: "json",
+        origin: "*"
+      }).toString();
+
+      const pageResponse = await fetch(pageUrl, {
+        headers: {
+          "Accept": "application/json"
+        },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (!pageResponse.ok) continue;
+
+      const pageData = await pageResponse.json();
+      const pages = pageData?.query?.pages || {};
+      const page = Object.values(pages)[0];
+
+      let extract = String(page?.extract || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!extract || extract.length < 60) continue;
+
+      // Remove textos entre parênteses muito longos.
+      extract = extract.replace(/\([^)]{80,}\)/g, "");
+
+      // Limita o texto para não criar páginas enormes.
+      const sentences = extract.match(/[^.!?]+[.!?]+/g) || [extract];
+
+      let summary = "";
+
+      for (const sentence of sentences) {
+        if ((summary + sentence).length > 850) break;
+        summary += sentence.trim() + " ";
+      }
+
+      summary = summary.trim();
+
+      if (summary.length < 40) continue;
+
+      return `Sobre ${name}: ${summary} Fonte de informações: Wikipédia (${language.toUpperCase()}).`;
+    } catch (error) {
+      // Se a pesquisa falhar, tenta o próximo idioma.
+      continue;
+    }
+  }
+
+  // Descrição alternativa caso não encontre informações.
+  return `${name} é um jogo do console ${consoleName}. Prepare-se para reviver esse clássico dos videogames, explorar seus desafios e aproveitar toda a experiência retrô. Disponível no DL RETRO GAMES para jogar online.`;
+}
+
 function createEmulatorIndex({
   name,
   consoleName,
   romFilename
 }) {
   const core = getCore(consoleName);
-
   const safeName = escapeHtml(name);
   const safeConsole = escapeHtml(consoleName);
 
-  // O nome do arquivo é codificado para funcionar
-  // mesmo quando possui espaços ou caracteres especiais.
   const romUrl = "./" +
     romFilename.split("/").map(encodeURIComponent).join("/");
-
-  const safeRomUrl = JSON.stringify(romUrl);
-  const safeGameName = JSON.stringify(name);
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>${safeName} - DL RETRO GAMES</title>
-
 <style>
-* {
-  box-sizing: border-box;
-}
-
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  min-height: 100%;
-  background: #050914;
-  color: #fff;
-  font-family: Arial, sans-serif;
-}
-
-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.header {
-  width: 100%;
-  padding: 15px;
-  text-align: center;
-  background: #0b1426;
-  border-bottom: 1px solid #00d9ff;
-}
-
-.header h1 {
-  margin: 0;
-  color: #00eaff;
-  font-size: 22px;
-}
-
-.header p {
-  margin: 7px 0 0;
-  color: #aaa;
-  font-size: 13px;
-}
-
-#game {
-  width: 100%;
-  max-width: 1200px;
-  min-height: 70vh;
-  margin: 15px auto;
-  background: #000;
-}
-
-.footer {
-  padding: 15px;
-  color: #777;
-  font-size: 12px;
-  text-align: center;
-}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;width:100%;min-height:100%;background:#050914;color:#fff;font-family:Arial,sans-serif}
+body{display:flex;flex-direction:column;align-items:center}
+.header{width:100%;padding:15px;text-align:center;background:#0b1426;border-bottom:1px solid #00d9ff}
+.header h1{margin:0;color:#00eaff;font-size:22px}
+.header p{margin:7px 0 0;color:#aaa;font-size:13px}
+#game{width:100%;max-width:1200px;min-height:70vh;margin:15px auto;background:#000}
+.footer{padding:15px;color:#777;font-size:12px;text-align:center}
 </style>
 </head>
-
 <body>
-
 <header class="header">
-  <h1>${safeName}</h1>
-  <p>${safeConsole} • DL RETRO GAMES</p>
+<h1>${safeName}</h1>
+<p>${safeConsole} • DL RETRO GAMES</p>
 </header>
-
 <div id="game"></div>
-
-<div class="footer">
-  DL RETRO GAMES - Jogos clássicos
-</div>
-
+<div class="footer">DL RETRO GAMES - Jogos clássicos</div>
 <script>
 window.EJS_player = "#game";
 window.EJS_core = ${JSON.stringify(core)};
-window.EJS_gameUrl = ${safeRomUrl};
-window.EJS_gameName = ${safeGameName};
-window.EJS_pathtodata =
-  "https://cdn.emulatorjs.org/stable/data/";
-
+window.EJS_gameUrl = ${JSON.stringify(romUrl)};
+window.EJS_gameName = ${JSON.stringify(name)};
+window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
 window.EJS_startOnLoaded = true;
 </script>
-
-<script
-  src="https://cdn.emulatorjs.org/stable/data/loader.js">
-</script>
-
+<script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
 </body>
 </html>`;
 }
@@ -243,11 +284,7 @@ function createGamePage({
   const safeConsole = escapeHtml(consoleName);
   const safeCover = escapeHtml(coverUrl);
   const safeDownload = escapeHtml(downloadUrl);
-
-  const finalDescription = description ||
-    `Conheça ${name}, um clássico do console ${consoleName}. Prepare-se para reviver essa aventura retrô!`;
-
-  const safeDescription = escapeHtml(finalDescription);
+  const safeDescription = escapeHtml(description);
 
   const scriptOnlineUrl = JSON.stringify(onlineUrl)
     .replace(/</g, "\\u003c");
@@ -260,73 +297,40 @@ function createGamePage({
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>${safeName} - DL RETRO GAMES</title>
-
 <style>
 *{box-sizing:border-box}
-body{
-  margin:0;padding:20px;background:#080b16;color:#fff;
-  font-family:Arial,sans-serif;text-align:center
-}
+body{margin:0;padding:20px;background:#080b16;color:#fff;font-family:Arial,sans-serif;text-align:center}
 .container{max-width:850px;margin:auto}
 h1{color:#00eaff;font-size:30px}
 .console{color:#aaa;margin-bottom:20px}
-.cover{
-  width:220px;max-width:85%;border-radius:12px;
-  margin:10px auto 20px;display:block
-}
-.description{
-  background:#111a2d;border:1px solid #193c55;
-  border-radius:12px;padding:20px;margin:20px auto;
-  text-align:left;line-height:1.7;color:#ddd
-}
+.cover{width:220px;max-width:85%;border-radius:12px;margin:10px auto 20px;display:block}
+.description{background:#111a2d;border:1px solid #193c55;border-radius:12px;padding:20px;margin:20px auto;text-align:left;line-height:1.7;color:#ddd}
 .description h2{color:#00eaff;margin-top:0}
-.buttons{
-  display:flex;gap:12px;justify-content:center;
-  flex-wrap:wrap;margin:25px 0
-}
-.btn{
-  display:inline-block;padding:15px 24px;border-radius:8px;
-  background:#00d9ff;color:#001018;font-weight:bold;
-  text-decoration:none;border:0;cursor:pointer;font-size:15px
-}
+.buttons{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:25px 0}
+.btn{display:inline-block;padding:15px 24px;border-radius:8px;background:#00d9ff;color:#001018;font-weight:bold;text-decoration:none;border:0;cursor:pointer;font-size:15px}
 .btn.download{background:#00e676}
 #emulator{display:none;margin-top:25px}
-#emulator iframe{
-  width:100%;height:70vh;min-height:400px;
-  border:2px solid #00d9ff;border-radius:10px;background:#000
-}
+#emulator iframe{width:100%;height:70vh;min-height:400px;border:2px solid #00d9ff;border-radius:10px;background:#000}
 </style>
 </head>
-
 <body>
 <div class="container">
-  <h1>${safeName}</h1>
-  <div class="console">${safeConsole}</div>
-
-  <img class="cover" src="${safeCover}" alt="${safeName}">
-
-  <section class="description">
-    <h2>Sobre o jogo</h2>
-    <p>${safeDescription}</p>
-  </section>
-
-  <div class="buttons">
-    <button class="btn" id="play-button" type="button">
-      JOGAR ONLINE
-    </button>
-
-    ${downloadUrl ? `
-    <a class="btn download" href="${safeDownload}" target="_blank" rel="noopener">
-      BAIXAR JOGO
-    </a>
-    ` : ""}
-  </div>
-
-  <div id="emulator"></div>
+<h1>${safeName}</h1>
+<div class="console">${safeConsole}</div>
+<img class="cover" src="${safeCover}" alt="${safeName}">
+<section class="description">
+<h2>Sobre o jogo</h2>
+<p>${safeDescription}</p>
+</section>
+<div class="buttons">
+<button class="btn" id="play-button" type="button">JOGAR ONLINE</button>
+${downloadUrl ? `
+<a class="btn download" href="${safeDownload}" target="_blank" rel="noopener">BAIXAR JOGO</a>
+` : ""}
 </div>
-
+<div id="emulator"></div>
+</div>
 <script>
 document.getElementById("play-button").addEventListener("click", function() {
   const emulator = document.getElementById("emulator");
@@ -344,7 +348,6 @@ document.getElementById("play-button").addEventListener("click", function() {
   emulator.scrollIntoView({ behavior: "smooth" });
 });
 </script>
-
 </body>
 </html>`;
 }
@@ -425,13 +428,12 @@ export async function onRequestPost({ request, env }) {
       form.get("downloadUrl") || ""
     ).trim();
 
-    const description = String(
+    // Se o administrador preencher, a descrição manual será usada.
+    // Se deixar vazio, o sistema pesquisa automaticamente.
+    let description = String(
       form.get("description") || ""
     ).trim();
 
-    // Aceita o campo novo "rom".
-    // O campo antigo "zip" é aceito apenas como nome
-    // alternativo do campo, mas o arquivo precisa ser ROM.
     const rom = form.get("rom") || form.get("zip");
     const cover = form.get("cover");
 
@@ -565,6 +567,17 @@ export async function onRequestPost({ request, env }) {
       return sameSlug && sameConsole;
     });
 
+    /*
+     * GERA A DESCRIÇÃO AUTOMATICAMENTE.
+     * Só pesquisa se o campo estiver vazio.
+     */
+    let descriptionGenerated = false;
+
+    if (!description) {
+      description = await generateDescription(name, consoleName);
+      descriptionGenerated = true;
+    }
+
     // CAPA DO JOGO.
     let coverPath = "";
     let coverUrl = "";
@@ -648,6 +661,7 @@ export async function onRequestPost({ request, env }) {
       downloadUrl: downloadUrl || "",
       coverUrl,
       description,
+      descriptionGenerated,
       slug
     };
 
@@ -766,11 +780,14 @@ export async function onRequestPost({ request, env }) {
       downloadUrl: downloadUrl || null,
       coverUrl,
       description,
+      descriptionGenerated,
       folder: `${gameDirectory}/`,
       indexGenerated: true,
       rom: romFilename,
       catalogUrl: gamesUrl,
-      message: "Jogo publicado! ROM e index.html criados automaticamente."
+      message: descriptionGenerated
+        ? "Jogo publicado! A descrição foi pesquisada e criada automaticamente."
+        : "Jogo publicado! A descrição manual foi utilizada."
     });
 
   } catch (error) {
