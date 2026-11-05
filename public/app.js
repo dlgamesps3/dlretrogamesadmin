@@ -1,286 +1,62 @@
-const $ = (s) => document.querySelector(s);
+import { requireAdmin, json } from "../../_lib/security.js";
 
-const loginScreen = $("#login-screen");
-const app = $("#app");
+const OWNER = "dlgamesps3";
+const REPO = "dlretrogames";
+const BRANCH = "main";
 
-let users = [];
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
-async function api(path, options = {}) {
-  const isFormData = options.body instanceof FormData;
+const ROM_EXTENSIONS = [
+  ".sfc", ".smc", ".nes", ".gba", ".gbc",
+  ".gb", ".md", ".gen", ".bin", ".iso"
+];
 
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(options.headers || {})
-    },
-    credentials: "same-origin"
-  });
-
-  const responseText = await response.text();
-
-  let data = {};
-
-  try {
-    data = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    data = {};
-  }
-
-  if (!response.ok) {
-    const serverError =
-      data.error ||
-      data.message ||
-      data.detail ||
-      "";
-
-    const errorMessage = serverError
-      ? String(serverError)
-      : responseText
-        ? `Resposta do servidor: ${responseText.slice(0, 500)}`
-        : `Erro HTTP ${response.status}: ${response.statusText || "Falha na solicitação."}`;
-
-    throw new Error(
-      `HTTP ${response.status}: ${errorMessage}`
-    );
-  }
-
-  if (!responseText) {
-    return {};
-  }
-
-  if (!Object.keys(data).length && responseText) {
-    throw new Error(
-      `O servidor retornou uma resposta inválida: ${responseText.slice(0, 500)}`
-    );
-  }
-
-  return data;
+function slugify(value) {
+  return String(value || "jogo")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase()
+    .slice(0, 70);
 }
 
-function showApp() {
-  loginScreen.classList.add("hidden");
-  app.classList.remove("hidden");
-  createGamesArea();
+function normalizeConsole(value) {
+  const text = String(value || "").toLowerCase();
+
+  if (text.includes("snes") || text.includes("super nintendo")) return "SNES";
+  if (text.includes("gba") || text.includes("game boy advance")) return "GBA";
+  if (text.includes("gbc") || text.includes("game boy color")) return "GBC";
+  if (text.includes("game boy") || text === "gb") return "GB";
+  if (text.includes("nes") || text.includes("nintendo")) return "NES";
+
+  if (
+    text.includes("mega") ||
+    text.includes("genesis") ||
+    text.includes("megadrive")
+  ) return "Mega-Drive";
+
+  if (text.includes("ps1") || text.includes("playstation")) return "PS1";
+
+  return slugify(value) || "SNES";
 }
 
-function showLogin() {
-  app.classList.add("hidden");
-  loginScreen.classList.remove("hidden");
+function getCore(consoleName) {
+  const cores = {
+    "SNES": "snes9x",
+    "GBA": "mgba",
+    "GBC": "gambatte",
+    "GB": "gambatte",
+    "NES": "fceumm",
+    "Mega-Drive": "genesis_plus_gx",
+    "PS1": "pcsx_rearmed"
+  };
+
+  return cores[consoleName] || null;
 }
 
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, char => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
-  })[char]);
-}
-
-function dateLabel(date) {
-  if (!date) return "Sem validade";
-
-  const parsed = new Date(date);
-
-  return Number.isNaN(parsed.getTime())
-    ? "Sem validade"
-    : parsed.toLocaleDateString("pt-BR");
-}
-
-function statusOf(user) {
-  if (user.blocked) return "Bloqueado";
-
-  if (user.expiresAt && new Date(user.expiresAt) < new Date()) {
-    return "Expirado";
-  }
-
-  return "Ativo";
-}
-
-/* =====================================
-   ÁREA DE CADASTRO DE JOGOS
-===================================== */
-
-function createGamesArea() {
-  if ($("#games-panel")) return;
-
-  const security = $("#seguranca");
-
-  if (!security) return;
-
-  const panel = document.createElement("section");
-
-  panel.id = "games-panel";
-  panel.className = "panel";
-
-  panel.innerHTML = `
-    <div class="section-head">
-      <div>
-        <p class="eyebrow">CATÁLOGO</p>
-        <h2>Adicionar jogo</h2>
-        <p class="muted">
-          Envie a ROM diretamente. O sistema cria automaticamente
-          a página do emulador e a página de apresentação do jogo.
-        </p>
-      </div>
-    </div>
-
-    <form id="game-form" class="create-form">
-
-      <label class="wide">
-        Nome do jogo
-        <input
-          name="name"
-          type="text"
-          required
-          maxlength="100"
-          placeholder="Ex.: Super Mario World"
-        >
-      </label>
-
-      <label>
-        Console
-        <select name="console" required>
-          <option value="SNES">Super Nintendo (SNES)</option>
-          <option value="GBA">Game Boy Advance (GBA)</option>
-          <option value="GBC">Game Boy Color (GBC)</option>
-          <option value="GB">Game Boy (GB)</option>
-          <option value="NES">Nintendo (NES)</option>
-          <option value="Mega-Drive">Mega Drive</option>
-          <option value="PS1">PlayStation 1</option>
-        </select>
-      </label>
-
-      <label>
-        Capa do jogo
-        <input
-          name="cover"
-          type="file"
-          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-        >
-      </label>
-
-      <label class="wide">
-        Descrição do jogo
-        <textarea
-          name="description"
-          rows="5"
-          maxlength="3000"
-          placeholder="A descrição será criada automaticamente."
-        ></textarea>
-      </label>
-
-      <div class="wide">
-        <p class="eyebrow">ARQUIVO DO JOGO</p>
-      </div>
-
-      <label class="wide">
-        Arquivo da ROM
-        <input
-          name="rom"
-          type="file"
-          required
-          accept=".sfc,.smc,.nes,.gba,.gbc,.gb,.md,.gen,.bin,.iso"
-        >
-      </label>
-
-      <p class="muted wide">
-        Selecione a ROM original do jogo. Não precisa enviar ZIP
-        nem criar index.html manualmente. O sistema gera o emulador
-        automaticamente.
-      </p>
-
-      <div class="wide">
-        <p class="eyebrow">DOWNLOAD OPCIONAL</p>
-      </div>
-
-      <label class="wide">
-        Link para download
-        <input
-          name="downloadUrl"
-          type="url"
-          placeholder="https://..."
-        >
-      </label>
-
-      <button class="primary wide" type="submit">
-        PUBLICAR JOGO
-      </button>
-
-    </form>
-
-    <div
-      id="game-result"
-      class="generated hidden"
-      aria-live="polite"
-    ></div>
-
-    <p id="game-error" class="error" role="alert"></p>
-  `;
-
-  security.insertAdjacentElement("afterend", panel);
-
-  $("#game-form").addEventListener("submit", uploadGame);
-}
-
-/* =====================================
-   ENVIO DA ROM
-===================================== */
-
-async function uploadGame(event) {
-  event.preventDefault();
-
-  const form = event.currentTarget;
-  const button = form.querySelector('button[type="submit"]');
-  const result = $("#game-result");
-  const error = $("#game-error");
-
-  error.textContent = "";
-  result.classList.add("hidden");
-  result.innerHTML = "";
-
-  const name = form.elements.name.value.trim();
-  const consoleName = form.elements.console.value;
-  const description = form.elements.description.value.trim();
-  const downloadUrl = form.elements.downloadUrl.value.trim();
-  const rom = form.elements.rom.files[0];
-  const cover = form.elements.cover.files[0];
-
-  if (!name) {
-    error.textContent = "Informe o nome do jogo.";
-    return;
-  }
-
-  if (!rom) {
-    error.textContent = "Selecione o arquivo da ROM.";
-    return;
-  }
-
-  if (rom.size === 0) {
-    error.textContent = "O arquivo da ROM está vazio.";
-    return;
-  }
-
-  if (rom.size > 50 * 1024 * 1024) {
-    error.textContent = "A ROM ultrapassa o limite de 50 MB.";
-    return;
-  }
-
-  if (downloadUrl && !/^https?:\/\//i.test(downloadUrl)) {
-    error.textContent = "Informe um link de download válido.";
-    return;
-  }
-
-  if (description.length > 3000) {
-    error.textContent = "A descrição ultrapassa 3000 caracteres.";
-    return;
-  }
-
-  const extension = "." + rom.name.split(".").pop().toLowerCase();
-
-  const allowedExtensions = {
+function getExtensions(consoleName) {
+  const extensions = {
     "SNES": [".sfc", ".smc"],
     "GBA": [".gba"],
     "GBC": [".gbc"],
@@ -290,357 +66,687 @@ async function uploadGame(event) {
     "PS1": [".iso", ".bin"]
   };
 
-  const allowed = allowedExtensions[consoleName] || [];
+  return extensions[consoleName] || ROM_EXTENSIONS;
+}
 
-  if (!allowed.includes(extension)) {
-    error.textContent =
-      `O arquivo ${extension} não corresponde ao console selecionado.`;
-    return;
+function base64(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
 
-  if (cover && cover.size > 8 * 1024 * 1024) {
-    error.textContent = "A capa ultrapassa o limite de 8 MB.";
-    return;
-  }
+  return btoa(binary);
+}
 
-  if (cover) {
-    const allowedCoverTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp"
-    ];
+function decodeBase64(value) {
+  const binary = atob(value.replace(/\s/g, ""));
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
 
-    if (!allowedCoverTypes.includes(cover.type)) {
-      error.textContent = "A capa precisa ser JPG, PNG ou WEBP.";
-      return;
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
+function safeRomName(filename) {
+  const original = String(filename || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop();
+
+  return original
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/^\.+/, "");
+}
+
+function isRom(filename) {
+  const lower = String(filename || "").toLowerCase();
+  return ROM_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
+async function generateDescription(name, consoleName) {
+  const languages = ["pt", "en"];
+
+  for (const language of languages) {
+    try {
+      const searchUrl = new URL(
+        `https://${language}.wikipedia.org/w/api.php`
+      );
+
+      searchUrl.search = new URLSearchParams({
+        action: "query",
+        list: "search",
+        srsearch: `"${name}" ${consoleName} video game`,
+        format: "json",
+        origin: "*",
+        srlimit: "5"
+      }).toString();
+
+      const searchResponse = await fetch(searchUrl, {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (!searchResponse.ok) continue;
+
+      const searchData = await searchResponse.json();
+      const results = searchData?.query?.search || [];
+
+      if (!results.length) continue;
+
+      const normalizedName = slugify(name).replace(/_/g, "");
+
+      const result = results.find(item => {
+        const title = slugify(item.title).replace(/_/g, "");
+        return title.includes(normalizedName) ||
+          normalizedName.includes(title);
+      }) || results[0];
+
+      const pageUrl = new URL(
+        `https://${language}.wikipedia.org/w/api.php`
+      );
+
+      pageUrl.search = new URLSearchParams({
+        action: "query",
+        prop: "extracts",
+        exintro: "1",
+        explaintext: "1",
+        exchars: "1200",
+        pageids: String(result.pageid),
+        format: "json",
+        origin: "*"
+      }).toString();
+
+      const pageResponse = await fetch(pageUrl, {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (!pageResponse.ok) continue;
+
+      const pageData = await pageResponse.json();
+      const pages = pageData?.query?.pages || {};
+      const page = Object.values(pages)[0];
+
+      let extract = String(page?.extract || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!extract || extract.length < 60) continue;
+
+      extract = extract.replace(/\([^)]{80,}\)/g, "");
+
+      const sentences = extract.match(/[^.!?]+[.!?]+/g) || [extract];
+
+      let summary = "";
+
+      for (const sentence of sentences) {
+        if ((summary + sentence).length > 850) break;
+        summary += sentence.trim() + " ";
+      }
+
+      summary = summary.trim();
+
+      if (summary.length < 40) continue;
+
+      return `Sobre ${name}: ${summary} Fonte de informações: Wikipédia (${language.toUpperCase()}).`;
+
+    } catch (error) {
+      continue;
     }
   }
 
-  const data = new FormData();
-
-  data.append("name", name);
-  data.append("console", consoleName);
-  data.append("description", description);
-  data.append("rom", rom);
-
-  if (downloadUrl) {
-    data.append("downloadUrl", downloadUrl);
-  }
-
-  if (cover) {
-    data.append("cover", cover);
-  }
-
-  button.disabled = true;
-  button.textContent = "PUBLICANDO JOGO...";
-
-  try {
-    const response = await api("/api/admin/games", {
-      method: "POST",
-      body: data
-    });
-
-    result.innerHTML = `
-      <strong>JOGO PUBLICADO COM SUCESSO!</strong>
-
-      <p>Nome: ${escapeHtml(response.name || name)}</p>
-      <p>Console: ${escapeHtml(response.console || consoleName)}</p>
-      <p>ROM: ${escapeHtml(response.rom || rom.name)}</p>
-
-      ${
-        response.description
-          ? `<p>Descrição: ${escapeHtml(response.description)}</p>`
-          : ""
-      }
-
-      ${
-        response.pageUrl
-          ? `<p>Página do jogo:
-              <a href="${escapeHtml(response.pageUrl)}" target="_blank" rel="noopener">
-                ABRIR PÁGINA
-              </a>
-            </p>`
-          : ""
-      }
-
-      ${
-        response.onlineUrl
-          ? `<p>Jogar online:
-              <a href="${escapeHtml(response.onlineUrl)}" target="_blank" rel="noopener">
-                ABRIR EMULADOR
-              </a>
-            </p>`
-          : ""
-      }
-
-      ${
-        response.downloadUrl
-          ? `<p>Download:
-              <a href="${escapeHtml(response.downloadUrl)}" target="_blank" rel="noopener">
-                ABRIR LINK
-              </a>
-            </p>`
-          : ""
-      }
-
-      <p>${escapeHtml(response.message || "Jogo publicado!")}</p>
-    `;
-
-    result.classList.remove("hidden");
-    form.reset();
-
-  } catch (err) {
-    error.textContent = `Falha ao publicar: ${err.message}`;
-    console.error("Erro ao publicar jogo:", err);
-
-  } finally {
-    button.disabled = false;
-    button.textContent = "PUBLICAR JOGO";
-  }
+  return `${name} é um jogo do console ${consoleName}. Prepare-se para reviver esse clássico dos videogames, explorar seus desafios e aproveitar toda a experiência retrô. Disponível no DL RETRO GAMES para jogar online.`;
 }
 
-/* =====================================
-   CARREGAR USUÁRIOS
-===================================== */
+function createEmulatorIndex({ name, consoleName, romFilename }) {
+  const core = getCore(consoleName);
+  const safeName = escapeHtml(name);
+  const safeConsole = escapeHtml(consoleName);
 
-async function loadUsers() {
-  try {
-    const data = await api("/api/admin/users");
+  const romUrl = "./" +
+    romFilename.split("/").map(encodeURIComponent).join("/");
 
-    users = data.users || [];
-
-    renderUsers();
-    updateStats();
-
-  } catch (err) {
-    $("#users-body").innerHTML =
-      `<tr><td colspan="5">${escapeHtml(err.message)}</td></tr>`;
-  }
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${safeName} - DL RETRO GAMES</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;width:100%;min-height:100%;background:#050914;color:#fff;font-family:Arial,sans-serif}
+body{display:flex;flex-direction:column;align-items:center}
+.header{width:100%;padding:15px;text-align:center;background:#0b1426;border-bottom:1px solid #00d9ff}
+.header h1{margin:0;color:#00eaff;font-size:22px}
+.header p{margin:7px 0 0;color:#aaa;font-size:13px}
+#game{width:100%;max-width:1200px;min-height:70vh;margin:15px auto;background:#000}
+.footer{padding:15px;color:#777;font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<header class="header">
+<h1>${safeName}</h1>
+<p>${safeConsole} • DL RETRO GAMES</p>
+</header>
+<div id="game"></div>
+<div class="footer">DL RETRO GAMES - Jogos clássicos</div>
+<script>
+window.EJS_player = "#game";
+window.EJS_core = ${JSON.stringify(core)};
+window.EJS_gameUrl = ${JSON.stringify(romUrl)};
+window.EJS_gameName = ${JSON.stringify(name)};
+window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+window.EJS_startOnLoaded = true;
+</script>
+<script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
+</body>
+</html>`;
 }
 
-/* =====================================
-   ESTATÍSTICAS
-===================================== */
+function createGamePage({
+  name,
+  consoleName,
+  onlineUrl,
+  coverUrl,
+  downloadUrl,
+  description
+}) {
+  const safeName = escapeHtml(name);
+  const safeConsole = escapeHtml(consoleName);
+  const safeCover = escapeHtml(coverUrl);
+  const safeDownload = escapeHtml(downloadUrl);
+  const safeDescription = escapeHtml(description);
 
-function updateStats() {
-  $("#total").textContent = users.length;
+  const scriptOnlineUrl = JSON.stringify(onlineUrl)
+    .replace(/</g, "\\u003c");
 
-  $("#vip").textContent = users.filter(u =>
-    u.plan === "VIP" && statusOf(u) === "Ativo"
-  ).length;
+  const scriptName = JSON.stringify(name)
+    .replace(/</g, "\\u003c");
 
-  $("#free").textContent = users.filter(u =>
-    u.plan === "GRATIS" && statusOf(u) === "Ativo"
-  ).length;
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${safeName} - DL RETRO GAMES</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:#080b16;color:#fff;font-family:Arial,sans-serif;text-align:center}
+.container{max-width:850px;margin:auto}
+h1{color:#00eaff;font-size:30px}
+.console{color:#aaa;margin-bottom:20px}
+.cover{width:220px;max-width:85%;border-radius:12px;margin:10px auto 20px;display:block}
+.description{background:#111a2d;border:1px solid #193c55;border-radius:12px;padding:20px;margin:20px auto;text-align:left;line-height:1.7;color:#ddd}
+.description h2{color:#00eaff;margin-top:0}
+.buttons{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:25px 0}
+.btn{display:inline-block;padding:15px 24px;border-radius:8px;background:#00d9ff;color:#001018;font-weight:bold;text-decoration:none;border:0;cursor:pointer;font-size:15px}
+.btn.download{background:#00e676}
+#emulator{display:none;margin-top:25px}
+#emulator iframe{width:100%;height:70vh;min-height:400px;border:2px solid #00d9ff;border-radius:10px;background:#000}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>${safeName}</h1>
+<div class="console">${safeConsole}</div>
+<img class="cover" src="${safeCover}" alt="${safeName}">
+<section class="description">
+<h2>Sobre o jogo</h2>
+<p>${safeDescription}</p>
+</section>
+<div class="buttons">
+<button class="btn" id="play-button" type="button">JOGAR ONLINE</button>
+${downloadUrl ? `
+<a class="btn download" href="${safeDownload}" target="_blank" rel="noopener">BAIXAR JOGO</a>
+` : ""}
+</div>
+<div id="emulator"></div>
+</div>
+<script>
+document.getElementById("play-button").addEventListener("click", function() {
+  const emulator = document.getElementById("emulator");
 
-  $("#expired").textContent = users.filter(u =>
-    statusOf(u) === "Expirado"
-  ).length;
-}
-
-/* =====================================
-   LISTA DE USUÁRIOS
-===================================== */
-
-function renderUsers() {
-  const body = $("#users-body");
-
-  if (!users.length) {
-    body.innerHTML =
-      '<tr><td colspan="5">Nenhum usuário cadastrado.</td></tr>';
-    return;
+  if (!emulator.dataset.loaded) {
+    const frame = document.createElement("iframe");
+    frame.src = ${scriptOnlineUrl};
+    frame.title = ${scriptName};
+    frame.allowFullscreen = true;
+    emulator.appendChild(frame);
+    emulator.dataset.loaded = "true";
   }
 
-  body.innerHTML = users.map(user => `
-    <tr>
-      <td>
-        <strong>${escapeHtml(user.username)}</strong>
-        ${user.note ? `<br><small>${escapeHtml(user.note)}</small>` : ""}
-      </td>
-
-      <td>${escapeHtml(user.plan)}</td>
-      <td>${escapeHtml(dateLabel(user.expiresAt))}</td>
-      <td>${escapeHtml(statusOf(user))}</td>
-
-      <td>
-        <div class="actions">
-          <button data-action="toggle" data-id="${escapeHtml(user.id)}">
-            ${user.blocked ? "Liberar" : "Bloquear"}
-          </button>
-
-          <button data-action="renew" data-id="${escapeHtml(user.id)}">
-            Renovar
-          </button>
-
-          <button data-action="delete" data-id="${escapeHtml(user.id)}">
-            Excluir
-          </button>
-        </div>
-      </td>
-    </tr>
-  `).join("");
-}
-
-/* =====================================
-   LOGIN
-===================================== */
-
-$("#login-form").addEventListener("submit", async event => {
-  event.preventDefault();
-
-  const form = event.currentTarget;
-  const error = $("#login-error");
-
-  error.textContent = "";
-
-  try {
-    await api("/api/admin/login", {
-      method: "POST",
-      body: JSON.stringify({
-        username: form.username.value.trim(),
-        password: form.password.value
-      })
-    });
-
-    form.reset();
-    showApp();
-    await loadUsers();
-
-  } catch (err) {
-    error.textContent = err.message;
-  }
+  emulator.style.display = "block";
+  emulator.scrollIntoView({ behavior: "smooth" });
 });
+</script>
+</body>
+</html>`;
+}
 
-/* =====================================
-   SAIR DO PAINEL
-===================================== */
+async function github(path, token, options = {}) {
+  const response = await fetch(
+    `https://api.github.com${path}`,
+    {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+        "User-Agent": "DL-RETRO-GAMES",
+        ...(options.headers || {})
+      }
+    }
+  );
 
-$("#logout").addEventListener("click", async () => {
-  try {
-    await api("/api/admin/logout", {
-      method: "POST"
-    });
-  } catch (err) {
-    console.error(err);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.message || "Erro ao acessar o GitHub.");
   }
 
-  showLogin();
-});
+  return data;
+}
 
-/* =====================================
-   GERAR USUÁRIO
-===================================== */
+function validateGitPaths(files) {
+  const paths = files.map(file => file.path);
+  const seen = new Set();
 
-$("#create-form").addEventListener("submit", async event => {
-  event.preventDefault();
+  for (const path of paths) {
+    const normalized = path.toLowerCase();
 
-  const form = event.currentTarget;
-  const error = $("#create-error");
-  const generated = $("#generated");
-  const button = form.querySelector('button[type="submit"]');
+    if (seen.has(normalized)) {
+      throw new Error(`Arquivo duplicado: ${path}`);
+    }
 
-  error.textContent = "";
-  generated.classList.add("hidden");
-  button.disabled = true;
+    seen.add(normalized);
+  }
+
+  const sorted = [...paths].sort();
+
+  for (let i = 0; i < sorted.length; i++) {
+    const current = sorted[i].toLowerCase();
+
+    for (let j = i + 1; j < sorted.length; j++) {
+      const next = sorted[j].toLowerCase();
+
+      if (next.startsWith(current + "/")) {
+        throw new Error(`Conflito de caminhos: ${sorted[i]}`);
+      }
+    }
+  }
+}
+
+/*
+ * MANIPULADOR DA ROTA.
+ * Aceita a rota e verifica o método antes de processar.
+ */
+export async function onRequest({ request, env }) {
+  if (request.method !== "POST") {
+    return json({ error: "Método não permitido. Use POST." }, 405);
+  }
 
   try {
-    const data = await api("/api/admin/users", {
-      method: "POST",
-      body: JSON.stringify({
-        plan: form.plan.value,
-        days: Number(form.days.value),
-        note: form.note.value.trim()
-      })
+    if (!(await requireAdmin(request, env))) {
+      return json({ error: "Não autenticado." }, 401);
+    }
+
+    if (!env.GITHUB_TOKEN) {
+      return json({
+        error: "Configure GITHUB_TOKEN no Cloudflare."
+      }, 500);
+    }
+
+    const form = await request.formData();
+
+    const name = String(form.get("name") || "").trim();
+    const consoleInput = String(form.get("console") || "").trim();
+    const consoleName = normalizeConsole(consoleInput);
+
+    const downloadUrl = String(form.get("downloadUrl") || "").trim();
+
+    let description = String(form.get("description") || "").trim();
+
+    const rom = form.get("rom") || form.get("zip");
+    const cover = form.get("cover");
+
+    if (!name) {
+      return json({ error: "Informe o nome do jogo." }, 400);
+    }
+
+    if (downloadUrl && !/^https?:\/\//i.test(downloadUrl)) {
+      return json({ error: "Link de download inválido." }, 400);
+    }
+
+    if (
+      !rom ||
+      typeof rom.arrayBuffer !== "function" ||
+      rom.size === 0
+    ) {
+      return json({ error: "Selecione o arquivo da ROM." }, 400);
+    }
+
+    if (rom.size > MAX_FILE_SIZE) {
+      return json({ error: "A ROM ultrapassa 50 MB." }, 400);
+    }
+
+    if (description.length > 3000) {
+      return json({ error: "A descrição ultrapassa 3000 caracteres." }, 400);
+    }
+
+    const slug = slugify(name);
+
+    if (!slug) {
+      return json({ error: "Nome de jogo inválido." }, 400);
+    }
+
+    const romFilename = safeRomName(rom.name);
+
+    if (!romFilename || !isRom(romFilename)) {
+      return json({
+        error: "Envie uma ROM válida, sem ZIP. Formatos aceitos: SFC, SMC, NES, GBA, GBC, GB, MD, GEN, BIN e ISO."
+      }, 400);
+    }
+
+    const core = getCore(consoleName);
+
+    if (!core) {
+      return json({
+        error: "Console não suportado pelo gerador automático."
+      }, 400);
+    }
+
+    const allowedExtensions = getExtensions(consoleName);
+    const extension = "." + romFilename.split(".").pop().toLowerCase();
+
+    if (!allowedExtensions.includes(extension)) {
+      return json({
+        error: `O arquivo ${extension} não corresponde ao console ${consoleName}.`
+      }, 400);
+    }
+
+    const romContent = new Uint8Array(await rom.arrayBuffer());
+
+    if (!romContent.length) {
+      return json({ error: "O arquivo da ROM está vazio." }, 400);
+    }
+
+    const token = env.GITHUB_TOKEN;
+    const apiBase = `/repos/${OWNER}/${REPO}`;
+
+    const reference = await github(
+      `${apiBase}/git/ref/heads/${BRANCH}`,
+      token
+    );
+
+    const parentSha = reference.object.sha;
+
+    const parentCommit = await github(
+      `${apiBase}/git/commits/${parentSha}`,
+      token
+    );
+
+    const gamesUrl =
+      `https://${OWNER}.github.io/${REPO}/games.json`;
+
+    const gameDirectory =
+      `pages/jogos-online/${consoleName}/${slug}`;
+
+    const onlineUrl =
+      `https://${OWNER}.github.io/${REPO}/${gameDirectory}/`;
+
+    const pagePath =
+      `pages/jogos/${consoleName}/${slug}.html`;
+
+    const pageUrl =
+      `https://${OWNER}.github.io/${REPO}/${pagePath}`;
+
+    let games = [];
+
+    try {
+      const existing = await github(
+        `${apiBase}/contents/games.json?ref=${BRANCH}`,
+        token
+      );
+
+      games = JSON.parse(decodeBase64(existing.content));
+
+      if (!Array.isArray(games)) games = [];
+
+    } catch (error) {
+      if (!String(error.message).includes("Not Found")) {
+        throw error;
+      }
+    }
+
+    const previousGame = games.find(game => {
+      const sameSlug = slugify(game.slug || game.name) === slug;
+      const sameConsole =
+        normalizeConsole(game.console) === consoleName;
+
+      return sameSlug && sameConsole;
     });
 
-    generated.innerHTML = `
-      <strong>Usuário criado!</strong>
-      <p>Usuário: ${escapeHtml(data.username)}</p>
-      <p>Senha: ${escapeHtml(data.password)}</p>
-    `;
+    let descriptionGenerated = false;
 
-    generated.classList.remove("hidden");
-    form.reset();
+    if (!description) {
+      description = await generateDescription(name, consoleName);
+      descriptionGenerated = true;
+    }
 
-    await loadUsers();
+    let coverPath = "";
+    let coverUrl = "";
+    let coverContent = null;
 
-  } catch (err) {
-    error.textContent = err.message;
-
-  } finally {
-    button.disabled = false;
-  }
-});
-
-/* =====================================
-   AÇÕES DOS USUÁRIOS
-===================================== */
-
-$("#users-body").addEventListener("click", async event => {
-  const button = event.target.closest("button[data-action]");
-
-  if (!button) return;
-
-  const id = button.dataset.id;
-  const action = button.dataset.action;
-
-  try {
-    if (action === "delete") {
-      if (!confirm("Deseja realmente excluir este usuário?")) {
-        return;
+    if (
+      cover &&
+      typeof cover.arrayBuffer === "function" &&
+      cover.size > 0
+    ) {
+      if (cover.size > 8 * 1024 * 1024) {
+        return json({ error: "A capa ultrapassa 8 MB." }, 400);
       }
 
-      await api(`/api/admin/users/${id}`, {
-        method: "DELETE"
-      });
+      let coverExtension = null;
+
+      if (cover.type === "image/png") {
+        coverExtension = ".png";
+      } else if (cover.type === "image/webp") {
+        coverExtension = ".webp";
+      } else if (
+        cover.type === "image/jpeg" ||
+        cover.type === "image/jpg"
+      ) {
+        coverExtension = ".jpg";
+      }
+
+      if (!coverExtension) {
+        return json({
+          error: "A capa precisa ser JPG, PNG ou WEBP."
+        }, 400);
+      }
+
+      coverPath = `${gameDirectory}/capa${coverExtension}`;
+
+      coverUrl =
+        `https://${OWNER}.github.io/${REPO}/${coverPath}`;
+
+      coverContent = new Uint8Array(await cover.arrayBuffer());
+
+    } else if (previousGame && previousGame.coverUrl) {
+      coverUrl = previousGame.coverUrl;
 
     } else {
-      const body = action === "toggle"
-        ? { action: "toggle" }
-        : { action: "renew", days: 30 };
+      coverPath = "img/capas/sem-capa.jpg";
 
-      await api(`/api/admin/users/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(body)
+      coverUrl =
+        `https://${OWNER}.github.io/${REPO}/${coverPath}`;
+    }
+
+    const indexHtml = createEmulatorIndex({
+      name,
+      consoleName,
+      romFilename
+    });
+
+    const indexBytes = new TextEncoder().encode(indexHtml);
+
+    const pageHtml = createGamePage({
+      name,
+      consoleName,
+      onlineUrl,
+      coverUrl,
+      downloadUrl,
+      description
+    });
+
+    const pageBytes = new TextEncoder().encode(pageHtml);
+
+    const newGame = {
+      name,
+      console: consoleName,
+      onlineUrl,
+      pageUrl,
+      downloadUrl: downloadUrl || "",
+      coverUrl,
+      description,
+      descriptionGenerated,
+      slug
+    };
+
+    games = games.filter(game => {
+      const sameSlug = slugify(game.slug || game.name) === slug;
+      const sameConsole =
+        normalizeConsole(game.console) === consoleName;
+
+      return !(sameSlug && sameConsole);
+    });
+
+    games.push(newGame);
+
+    const catalogBytes = new TextEncoder().encode(
+      JSON.stringify(games, null, 2)
+    );
+
+    const files = [
+      {
+        githubPath: `${gameDirectory}/index.html`,
+        content: indexBytes
+      },
+      {
+        githubPath: `${gameDirectory}/${romFilename}`,
+        content: romContent
+      },
+      ...(coverContent ? [{
+        githubPath: coverPath,
+        content: coverContent
+      }] : []),
+      {
+        githubPath: pagePath,
+        content: pageBytes
+      },
+      {
+        githubPath: "games.json",
+        content: catalogBytes
+      }
+    ];
+
+    validateGitPaths(
+      files.map(file => ({ path: file.githubPath }))
+    );
+
+    const blobs = [];
+
+    for (const file of files) {
+      const blob = await github(
+        `${apiBase}/git/blobs`,
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            content: base64(file.content),
+            encoding: "base64"
+          })
+        }
+      );
+
+      blobs.push({
+        path: file.githubPath,
+        mode: "100644",
+        type: "blob",
+        sha: blob.sha
       });
     }
 
-    await loadUsers();
+    const tree = await github(
+      `${apiBase}/git/trees`,
+      token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          base_tree: parentCommit.tree.sha,
+          tree: blobs
+        })
+      }
+    );
 
-  } catch (err) {
-    alert(err.message);
-  }
-});
+    const commit = await github(
+      `${apiBase}/git/commits`,
+      token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message: `Publicar jogo: ${name}`,
+          tree: tree.sha,
+          parents: [parentSha]
+        })
+      }
+    );
 
-/* =====================================
-   PESQUISA DE USUÁRIOS
-===================================== */
+    await github(
+      `${apiBase}/git/refs/heads/${BRANCH}`,
+      token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          sha: commit.sha
+        })
+      }
+    );
 
-$("#search").addEventListener("input", event => {
-  const term = event.target.value.toLowerCase();
+    return json({
+      ok: true,
+      name,
+      console: consoleName,
+      onlineUrl,
+      pageUrl,
+      downloadUrl: downloadUrl || null,
+      coverUrl,
+      description,
+      descriptionGenerated,
+      folder: `${gameDirectory}/`,
+      indexGenerated: true,
+      rom: romFilename,
+      catalogUrl: gamesUrl,
+      message: descriptionGenerated
+        ? "Jogo publicado! A descrição foi pesquisada e criada automaticamente."
+        : "Jogo publicado! A descrição manual foi utilizada."
+    });
 
-  document.querySelectorAll("#users-body tr").forEach(row => {
-    row.style.display =
-      row.textContent.toLowerCase().includes(term)
-        ? ""
-        : "none";
-  });
-});
-
-/* =====================================
-   VERIFICAR SESSÃO
-===================================== */
-
-async function checkSession() {
-  try {
-    await api("/api/admin/me");
-
-    showApp();
-    await loadUsers();
-
-  } catch {
-    showLogin();
+  } catch (error) {
+    return json({
+      error: error.message || "Falha ao publicar o jogo."
+    }, 500);
   }
 }
-
-checkSession();
