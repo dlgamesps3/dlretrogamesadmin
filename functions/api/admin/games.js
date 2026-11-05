@@ -108,7 +108,61 @@ function escapeHtml(value) {
   })[char]);
 }
 
-// EXTRAI ZIPs E PRESERVA OS ARQUIVOS ZIP ORIGINAIS.
+function sameBytes(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+
+  return true;
+}
+
+function getRomStem(filename) {
+  return String(filename || "")
+    .split(/[?#]/)[0]
+    .split("/")
+    .pop()
+    .replace(/\.zip$/i, "")
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase();
+}
+
+function getUniqueRomName(files, originalName, content) {
+  const safeName = originalName
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+
+  const dot = safeName.lastIndexOf(".");
+  const stem = dot > 0 ? safeName.slice(0, dot) : safeName;
+  const extension = dot > 0 ? safeName.slice(dot) : "";
+
+  let candidate = safeName;
+  let counter = 1;
+
+  while (true) {
+    const existing = files.find(file =>
+      file.path.toLowerCase() === candidate.toLowerCase()
+    );
+
+    if (!existing) return candidate;
+
+    if (sameBytes(existing.content, content)) {
+      return existing.path;
+    }
+
+    candidate = counter === 1
+      ? `${stem}_extraido${extension}`
+      : `${stem}_extraido_${counter}${extension}`;
+
+    counter++;
+  }
+}
+
+// EXTRAI ZIPs, PRESERVANDO OS ZIPs ORIGINAIS
+// E A ESTRUTURA DAS PASTAS INTERNAS.
 async function extractZip(
   buffer,
   prefix = "",
@@ -234,6 +288,13 @@ async function extractZip(
       throw new Error(`O arquivo ${filename} ultrapassa 50 MB.`);
     }
 
+    if (
+      uncompressedSize !== 0 &&
+      content.length !== uncompressedSize
+    ) {
+      throw new Error(`Tamanho inválido no arquivo ${filename}.`);
+    }
+
     budget.total += content.length;
 
     if (budget.total > MAX_TOTAL_SIZE) {
@@ -245,20 +306,20 @@ async function extractZip(
       : cleanName;
 
     if (isZip(filename)) {
-      // GUARDA O ZIP ORIGINAL.
+      // PRESERVA O ZIP ORIGINAL.
       files.push({
         path: fullPath,
         name: filename,
         content
       });
 
-      // EXTRAI O ZIP INTERNO NA PASTA ONDE ELE ESTÁ.
+      // EXTRAÇÃO INTERNA MANTENDO A PASTA DO PRÓPRIO ZIP.
       const nestedFiles = await extractZip(
         content.buffer.slice(
           content.byteOffset,
           content.byteOffset + content.byteLength
         ),
-        dirname(fullPath),
+        fullPath,
         depth + 1,
         budget
       );
@@ -499,18 +560,16 @@ export async function onRequestPost({ request, env }) {
       );
 
       const originalName = urlMatch
-        ? urlMatch[1].split(/[?#]/)[0].split("/").pop()
+        ? decodeURIComponent(
+            urlMatch[1].split(/[?#]/)[0].split("/").pop()
+          )
         : "";
 
-      const originalStem = originalName
-        .replace(/\.zip$/i, "")
-        .replace(/\.[^.]+$/, "")
-        .toLowerCase();
+      const originalStem = getRomStem(originalName);
 
+      // PRIMEIRO TENTA ENCONTRAR A ROM PELO NOME ORIGINAL.
       selectedRom = matchingRoms.find(file => {
-        const stem = file.name
-          .replace(/\.[^.]+$/, "")
-          .toLowerCase();
+        const stem = getRomStem(file.name);
 
         return originalStem &&
           (
@@ -520,6 +579,7 @@ export async function onRequestPost({ request, env }) {
           );
       });
 
+      // SE NÃO ENCONTRAR PELO NOME, USA O FORMATO DO CONSOLE.
       if (!selectedRom) {
         const preferredExtensions = {
           "SNES": [".sfc", ".smc"],
@@ -575,26 +635,27 @@ export async function onRequestPost({ request, env }) {
       }, 400);
     }
 
-    // NOVO: COLOCA UMA CÓPIA DA ROM JUNTO DA INDEX.HTML.
-    // O ZIP ORIGINAL E OS ARQUIVOS EXTRAÍDOS SÃO PRESERVADOS.
-    const romTargetPath = selectedRom.name;
+    // COLOCA UMA CÓPIA DA ROM JUNTO DA INDEX.HTML.
+    // PRESERVA O ZIP ORIGINAL E OS ARQUIVOS EXTRAÍDOS.
+    const romTargetPath = getUniqueRomName(
+      gameFiles,
+      selectedRom.name,
+      selectedRom.content
+    );
 
     const existingRom = gameFiles.find(file =>
       file.path.toLowerCase() === romTargetPath.toLowerCase()
     );
 
-    if (existingRom) {
-      existingRom.content = selectedRom.content;
-      existingRom.name = selectedRom.name;
-    } else {
+    if (!existingRom) {
       gameFiles.push({
-        name: selectedRom.name,
+        name: romTargetPath,
         path: romTargetPath,
         content: selectedRom.content
       });
     }
 
-    // A ROM agora está na mesma pasta da index.html.
+    // A ROM ESTÁ AGORA NA MESMA PASTA DA INDEX.HTML.
     const romRelativePath = romTargetPath;
 
     // CORRIGE AUTOMATICAMENTE O ENDEREÇO DA ROM.
