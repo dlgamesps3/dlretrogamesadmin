@@ -264,14 +264,12 @@ async function extractZip(
       : cleanName;
 
     if (isZip(filename)) {
-      // GUARDA O ZIP ORIGINAL.
       files.push({
         path: fullPath,
         name: filename,
         content
       });
 
-      // EXTRAI TAMBÉM O CONTEÚDO DO ZIP.
       const nestedFiles = await extractZip(
         content.buffer.slice(
           content.byteOffset,
@@ -328,7 +326,6 @@ function createGamePage({
 }) {
   const safeName = escapeHtml(name);
   const safeConsole = escapeHtml(consoleName);
-  const safeOnline = escapeHtml(onlineUrl);
   const safeCover = escapeHtml(coverUrl);
   const safeDownload = escapeHtml(downloadUrl);
 
@@ -601,39 +598,94 @@ export async function onRequestPost({ request, env }) {
       await zip.arrayBuffer()
     );
 
-    // PROCURA O INDEX.HTML E UMA ROM NA MESMA PASTA
-    // OU EM ALGUMA SUBPASTA.
+    // PROCURA O INDEX.HTML E UMA ROM COMPATÍVEL.
     const indexCandidates = extractedFiles.filter(file =>
       file.name.toLowerCase() === "index.html"
     );
 
     let selectedIndex = null;
+    let selectedRom = null;
 
     for (const candidate of indexCandidates) {
       const folder = dirname(candidate.path);
 
       const matchingRoms = extractedFiles.filter(file => {
         const relative = relativeTo(file.path, folder);
-
         return relative !== null && isRom(file.name);
       });
 
-      if (matchingRoms.length > 0) {
-        selectedIndex = candidate;
-        break;
+      if (matchingRoms.length === 0) continue;
+
+      const html = new TextDecoder().decode(candidate.content);
+
+      const urlMatch = html.match(
+        /\bEJS_gameUrl\s*=\s*["']([^"']+)["']/i
+      );
+
+      const originalName = urlMatch
+        ? urlMatch[1].split(/[?#]/)[0].split("/").pop()
+        : "";
+
+      const originalStem = originalName
+        .replace(/\.zip$/i, "")
+        .replace(/\.[^.]+$/, "")
+        .toLowerCase();
+
+      selectedRom = matchingRoms.find(file => {
+        const stem = file.name
+          .replace(/\.[^.]+$/, "")
+          .toLowerCase();
+
+        return originalStem &&
+          (
+            stem === originalStem ||
+            stem.includes(originalStem) ||
+            originalStem.includes(stem)
+          );
+      });
+
+      if (!selectedRom) {
+        const preferredExtensions = {
+          "SNES": [".sfc", ".smc"],
+          "GBA": [".gba"],
+          "NES": [".nes"],
+          "Mega-Drive": [".md", ".gen", ".bin"],
+          "PS1": [".iso", ".bin"]
+        };
+
+        const extensions = preferredExtensions[consoleName] || [];
+
+        selectedRom = matchingRoms.find(file =>
+          extensions.some(ext =>
+            file.name.toLowerCase().endsWith(ext)
+          )
+        ) || matchingRoms[0];
       }
+
+      selectedIndex = candidate;
+      break;
     }
 
-    if (!selectedIndex) {
+    if (!selectedIndex || !selectedRom) {
       return json({
-        error: "O ZIP precisa conter index.html e pelo menos uma ROM compatível. O sistema também procura dentro de ZIPs internos."
+        error: "Não encontrei o index.html e uma ROM compatível no ZIP."
       }, 400);
     }
 
     const gameFolder = dirname(selectedIndex.path);
 
-    // PRESERVA OS ARQUIVOS DA PASTA DO JOGO,
-    // INCLUINDO OS ZIPs ORIGINAIS.
+    const romRelativePath = relativeTo(
+      selectedRom.path,
+      gameFolder
+    );
+
+    if (!romRelativePath) {
+      return json({
+        error: "Não consegui identificar o caminho da ROM."
+      }, 400);
+    }
+
+    // MONTA OS ARQUIVOS DA PASTA DO JOGO.
     const gameFiles = extractedFiles
       .map(file => {
         const relative = relativeTo(file.path, gameFolder);
@@ -648,17 +700,43 @@ export async function onRequestPost({ request, env }) {
       })
       .filter(Boolean);
 
-    const hasIndex = gameFiles.some(file =>
+    const indexFile = gameFiles.find(file =>
       file.path.toLowerCase() === "index.html"
     );
+
+    if (!indexFile) {
+      return json({
+        error: "Não encontrei o index.html na pasta do jogo."
+      }, 400);
+    }
+
+    // CORRIGE AUTOMATICAMENTE O ENDEREÇO DA ROM.
+    const indexHtml = new TextDecoder().decode(indexFile.content);
+
+    const gameUrlPattern =
+      /(\bEJS_gameUrl\s*=\s*)(["'])(.*?)\2(\s*;?)/i;
+
+    if (!gameUrlPattern.test(indexHtml)) {
+      return json({
+        error: "Não encontrei EJS_gameUrl no index.html do emulador."
+      }, 400);
+    }
+
+    const correctedHtml = indexHtml.replace(
+      gameUrlPattern,
+      (match, prefix, quote, oldValue, suffix) =>
+        `${prefix}${JSON.stringify(romRelativePath)}${suffix}`
+    );
+
+    indexFile.content = new TextEncoder().encode(correctedHtml);
 
     const hasRom = gameFiles.some(file =>
       isRom(file.name)
     );
 
-    if (!hasIndex || !hasRom) {
+    if (!hasRom) {
       return json({
-        error: "Não foi possível localizar o index.html e a ROM do jogo."
+        error: "A ROM não foi encontrada nos arquivos do jogo."
       }, 400);
     }
 
