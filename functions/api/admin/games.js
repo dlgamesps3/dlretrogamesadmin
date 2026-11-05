@@ -27,29 +27,17 @@ function slugify(value) {
 function normalizeConsole(value) {
   const text = String(value || "").toLowerCase();
 
-  if (text.includes("snes") || text.includes("super nintendo")) {
-    return "SNES";
-  }
-
-  if (text.includes("gba") || text.includes("game boy advance")) {
-    return "GBA";
-  }
-
-  if (text.includes("nes") || text.includes("nintendo")) {
-    return "NES";
-  }
+  if (text.includes("snes") || text.includes("super nintendo")) return "SNES";
+  if (text.includes("gba") || text.includes("game boy advance")) return "GBA";
+  if (text.includes("nes") || text.includes("nintendo")) return "NES";
 
   if (
     text.includes("mega") ||
     text.includes("genesis") ||
     text.includes("megadrive")
-  ) {
-    return "Mega-Drive";
-  }
+  ) return "Mega-Drive";
 
-  if (text.includes("ps1") || text.includes("playstation")) {
-    return "PS1";
-  }
+  if (text.includes("ps1") || text.includes("playstation")) return "PS1";
 
   return slugify(value) || "SNES";
 }
@@ -78,9 +66,7 @@ function safePath(path) {
     normalized.startsWith("/") ||
     /^[a-zA-Z]:/.test(normalized) ||
     normalized.split("/").some(part => part === "..")
-  ) {
-    return null;
-  }
+  ) return null;
 
   const parts = normalized
     .split("/")
@@ -97,7 +83,6 @@ function isZip(name) {
 
 function isRom(name) {
   const lower = String(name || "").toLowerCase();
-
   return ROM_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
@@ -110,7 +95,6 @@ function relativeTo(path, prefix) {
   if (!prefix) return path;
   if (path === prefix) return "";
   if (!path.startsWith(prefix + "/")) return null;
-
   return path.slice(prefix.length + 1);
 }
 
@@ -124,7 +108,7 @@ function escapeHtml(value) {
   })[char]);
 }
 
-// EXTRAI OS ZIPs E PRESERVA OS ARQUIVOS ZIP ORIGINAIS.
+// EXTRAI ZIPs E PRESERVA OS ARQUIVOS ZIP ORIGINAIS.
 async function extractZip(
   buffer,
   prefix = "",
@@ -196,12 +180,9 @@ async function extractZip(
     if (
       originalName.endsWith("/") ||
       originalName.includes("__MACOSX/")
-    ) {
-      continue;
-    }
+    ) continue;
 
     const cleanName = safePath(originalName);
-
     if (!cleanName) continue;
 
     const filename = cleanName.split("/").pop();
@@ -264,12 +245,14 @@ async function extractZip(
       : cleanName;
 
     if (isZip(filename)) {
+      // GUARDA O ZIP ORIGINAL.
       files.push({
         path: fullPath,
         name: filename,
         content
       });
 
+      // EXTRAI O ZIP INTERNO NA PASTA ONDE ELE ESTÁ.
       const nestedFiles = await extractZip(
         content.buffer.slice(
           content.byteOffset,
@@ -281,7 +264,6 @@ async function extractZip(
       );
 
       files.push(...nestedFiles);
-
     } else {
       files.push({
         path: fullPath,
@@ -345,115 +327,51 @@ function createGamePage({
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>${safeName} - DL RETRO GAMES</title>
 
 <style>
-*{
-  box-sizing:border-box;
-}
-
+*{box-sizing:border-box}
 body{
-  margin:0;
-  padding:20px;
-  background:#080b16;
-  color:#fff;
-  font-family:Arial,sans-serif;
-  text-align:center;
+  margin:0;padding:20px;background:#080b16;color:#fff;
+  font-family:Arial,sans-serif;text-align:center
 }
-
-.container{
-  max-width:850px;
-  margin:auto;
-}
-
-h1{
-  color:#00eaff;
-  font-size:30px;
-}
-
-.console{
-  color:#aaa;
-  margin-bottom:20px;
-}
-
+.container{max-width:850px;margin:auto}
+h1{color:#00eaff;font-size:30px}
+.console{color:#aaa;margin-bottom:20px}
 .cover{
-  width:220px;
-  max-width:85%;
-  border-radius:12px;
-  margin:10px auto 20px;
-  display:block;
+  width:220px;max-width:85%;border-radius:12px;
+  margin:10px auto 20px;display:block
 }
-
 .description{
-  background:#111a2d;
-  border:1px solid #193c55;
-  border-radius:12px;
-  padding:20px;
-  margin:20px auto;
-  text-align:left;
-  line-height:1.7;
-  color:#ddd;
+  background:#111a2d;border:1px solid #193c55;
+  border-radius:12px;padding:20px;margin:20px auto;
+  text-align:left;line-height:1.7;color:#ddd
 }
-
-.description h2{
-  color:#00eaff;
-  margin-top:0;
-}
-
+.description h2{color:#00eaff;margin-top:0}
 .buttons{
-  display:flex;
-  gap:12px;
-  justify-content:center;
-  flex-wrap:wrap;
-  margin:25px 0;
+  display:flex;gap:12px;justify-content:center;
+  flex-wrap:wrap;margin:25px 0
 }
-
 .btn{
-  display:inline-block;
-  padding:15px 24px;
-  border-radius:8px;
-  background:#00d9ff;
-  color:#001018;
-  font-weight:bold;
-  text-decoration:none;
-  border:0;
-  cursor:pointer;
-  font-size:15px;
+  display:inline-block;padding:15px 24px;border-radius:8px;
+  background:#00d9ff;color:#001018;font-weight:bold;
+  text-decoration:none;border:0;cursor:pointer;font-size:15px
 }
-
-.btn.download{
-  background:#00e676;
-}
-
-#emulator{
-  display:none;
-  margin-top:25px;
-}
-
+.btn.download{background:#00e676}
+#emulator{display:none;margin-top:25px}
 #emulator iframe{
-  width:100%;
-  height:70vh;
-  min-height:400px;
-  border:2px solid #00d9ff;
-  border-radius:10px;
-  background:#000;
+  width:100%;height:70vh;min-height:400px;
+  border:2px solid #00d9ff;border-radius:10px;background:#000
 }
 </style>
 </head>
 
 <body>
 <div class="container">
-
   <h1>${safeName}</h1>
-
   <div class="console">${safeConsole}</div>
 
-  <img
-    class="cover"
-    src="${safeCover}"
-    alt="${safeName}"
-  >
+  <img class="cover" src="${safeCover}" alt="${safeName}">
 
   <section class="description">
     <h2>Sobre o jogo</h2>
@@ -461,59 +379,37 @@ h1{
   </section>
 
   <div class="buttons">
-
-    <button
-      class="btn"
-      id="play-button"
-      type="button"
-    >
+    <button class="btn" id="play-button" type="button">
       JOGAR ONLINE
     </button>
 
     ${downloadUrl ? `
-    <a
-      class="btn download"
-      href="${safeDownload}"
-      target="_blank"
-      rel="noopener"
-    >
+    <a class="btn download" href="${safeDownload}" target="_blank" rel="noopener">
       BAIXAR JOGO
     </a>
     ` : ""}
-
   </div>
 
   <div id="emulator"></div>
-
 </div>
 
 <script>
 document.getElementById("play-button").addEventListener("click", function() {
-
   const emulator = document.getElementById("emulator");
 
   if (!emulator.dataset.loaded) {
-
     const frame = document.createElement("iframe");
-
     frame.src = ${scriptOnlineUrl};
     frame.title = ${scriptName};
     frame.allowFullscreen = true;
-
     emulator.appendChild(frame);
     emulator.dataset.loaded = "true";
-
   }
 
   emulator.style.display = "block";
-
-  emulator.scrollIntoView({
-    behavior: "smooth"
-  });
-
+  emulator.scrollIntoView({ behavior: "smooth" });
 });
 </script>
-
 </body>
 </html>`;
 }
@@ -533,34 +429,20 @@ export async function onRequestPost({ request, env }) {
     const form = await request.formData();
 
     const name = String(form.get("name") || "").trim();
-
-    const consoleInput = String(
-      form.get("console") || ""
-    ).trim();
-
+    const consoleInput = String(form.get("console") || "").trim();
     const consoleName = normalizeConsole(consoleInput);
-
-    const downloadUrl = String(
-      form.get("downloadUrl") || ""
-    ).trim();
-
-    const description = String(
-      form.get("description") || ""
-    ).trim();
+    const downloadUrl = String(form.get("downloadUrl") || "").trim();
+    const description = String(form.get("description") || "").trim();
 
     const zip = form.get("zip");
     const cover = form.get("cover");
 
     if (!name) {
-      return json({
-        error: "Informe o nome do jogo."
-      }, 400);
+      return json({ error: "Informe o nome do jogo." }, 400);
     }
 
     if (downloadUrl && !/^https?:\/\//i.test(downloadUrl)) {
-      return json({
-        error: "Link de download inválido."
-      }, 400);
+      return json({ error: "Link de download inválido." }, 400);
     }
 
     if (
@@ -568,15 +450,11 @@ export async function onRequestPost({ request, env }) {
       typeof zip.arrayBuffer !== "function" ||
       zip.size === 0
     ) {
-      return json({
-        error: "Envie o ZIP do jogo."
-      }, 400);
+      return json({ error: "Envie o ZIP do jogo." }, 400);
     }
 
     if (zip.size > MAX_FILE_SIZE) {
-      return json({
-        error: "O ZIP ultrapassa 50 MB."
-      }, 400);
+      return json({ error: "O ZIP ultrapassa 50 MB." }, 400);
     }
 
     if (description.length > 3000) {
@@ -588,9 +466,7 @@ export async function onRequestPost({ request, env }) {
     const slug = slugify(name);
 
     if (!slug) {
-      return json({
-        error: "Nome de jogo inválido."
-      }, 400);
+      return json({ error: "Nome de jogo inválido." }, 400);
     }
 
     // EXTRAI O ZIP PRINCIPAL E OS ZIPs INTERNOS.
@@ -674,17 +550,6 @@ export async function onRequestPost({ request, env }) {
 
     const gameFolder = dirname(selectedIndex.path);
 
-    const romRelativePath = relativeTo(
-      selectedRom.path,
-      gameFolder
-    );
-
-    if (!romRelativePath) {
-      return json({
-        error: "Não consegui identificar o caminho da ROM."
-      }, 400);
-    }
-
     // MONTA OS ARQUIVOS DA PASTA DO JOGO.
     const gameFiles = extractedFiles
       .map(file => {
@@ -709,6 +574,28 @@ export async function onRequestPost({ request, env }) {
         error: "Não encontrei o index.html na pasta do jogo."
       }, 400);
     }
+
+    // NOVO: COLOCA UMA CÓPIA DA ROM JUNTO DA INDEX.HTML.
+    // O ZIP ORIGINAL E OS ARQUIVOS EXTRAÍDOS SÃO PRESERVADOS.
+    const romTargetPath = selectedRom.name;
+
+    const existingRom = gameFiles.find(file =>
+      file.path.toLowerCase() === romTargetPath.toLowerCase()
+    );
+
+    if (existingRom) {
+      existingRom.content = selectedRom.content;
+      existingRom.name = selectedRom.name;
+    } else {
+      gameFiles.push({
+        name: selectedRom.name,
+        path: romTargetPath,
+        content: selectedRom.content
+      });
+    }
+
+    // A ROM agora está na mesma pasta da index.html.
+    const romRelativePath = romTargetPath;
 
     // CORRIGE AUTOMATICAMENTE O ENDEREÇO DA ROM.
     const indexHtml = new TextDecoder().decode(indexFile.content);
@@ -789,13 +676,9 @@ export async function onRequestPost({ request, env }) {
         token
       );
 
-      games = JSON.parse(
-        decodeBase64(existing.content)
-      );
+      games = JSON.parse(decodeBase64(existing.content));
 
-      if (!Array.isArray(games)) {
-        games = [];
-      }
+      if (!Array.isArray(games)) games = [];
 
     } catch (error) {
       if (!String(error.message).includes("Not Found")) {
@@ -814,7 +697,6 @@ export async function onRequestPost({ request, env }) {
 
     let coverPath = "";
     let coverUrl = "";
-
     let coverExtension = null;
     let coverContent = null;
 
@@ -824,9 +706,7 @@ export async function onRequestPost({ request, env }) {
       cover.size > 0
     ) {
       if (cover.size > 8 * 1024 * 1024) {
-        return json({
-          error: "A capa ultrapassa 8 MB."
-        }, 400);
+        return json({ error: "A capa ultrapassa 8 MB." }, 400);
       }
 
       coverExtension =
@@ -841,8 +721,7 @@ export async function onRequestPost({ request, env }) {
         }, 400);
       }
 
-      coverPath =
-        `${gameDirectory}/capa${coverExtension}`;
+      coverPath = `${gameDirectory}/capa${coverExtension}`;
 
       coverUrl =
         `https://${OWNER}.github.io/${REPO}/${coverPath}`;
@@ -852,11 +731,8 @@ export async function onRequestPost({ request, env }) {
       );
 
     } else if (previousGame && previousGame.coverUrl) {
-
       coverUrl = previousGame.coverUrl;
-
     } else {
-
       coverPath = "img/capas/sem-capa.jpg";
 
       coverUrl =
@@ -877,7 +753,6 @@ export async function onRequestPost({ request, env }) {
     // ATUALIZA O JOGO SEM DUPLICAR.
     games = games.filter(game => {
       const sameSlug = slugify(game.slug || game.name) === slug;
-
       const sameConsole =
         normalizeConsole(game.console) === consoleName;
 
