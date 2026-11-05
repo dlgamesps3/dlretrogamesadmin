@@ -161,8 +161,40 @@ function getUniqueRomName(files, originalName, content) {
   }
 }
 
-// EXTRAI ZIPs, PRESERVANDO OS ZIPs ORIGINAIS
-// E A ESTRUTURA DAS PASTAS INTERNAS.
+// ESCOLHE UMA PASTA DE EXTRAÇÃO SEM CONFLITAR COM O ZIP ORIGINAL.
+function getExtractionFolder(files, parent, filename) {
+  const archiveName = filename.replace(/\.zip$/i, "");
+  let counter = 1;
+
+  while (true) {
+    const suffix = counter === 1
+      ? "_extraido"
+      : `_extraido_${counter}`;
+
+    const folderName = `${archiveName}${suffix}`;
+
+    const candidate = parent
+      ? `${parent}/${folderName}`
+      : folderName;
+
+    const conflict = files.some(file => {
+      const existing = file.path.toLowerCase();
+      const target = candidate.toLowerCase();
+
+      return existing === target ||
+        existing.startsWith(target + "/") ||
+        target.startsWith(existing + "/");
+    });
+
+    if (!conflict) return candidate;
+
+    counter++;
+  }
+}
+
+// EXTRAI ZIPs INTERNOS PRESERVANDO OS ARQUIVOS ZIP ORIGINAIS.
+// O CONTEÚDO DE CADA ZIP INTERNO VAI PARA UMA PASTA IRMÃ,
+// NUNCA PARA UMA PASTA COM O MESMO NOME DO ARQUIVO ZIP.
 async function extractZip(
   buffer,
   prefix = "",
@@ -306,25 +338,34 @@ async function extractZip(
       : cleanName;
 
     if (isZip(filename)) {
-      // PRESERVA O ZIP ORIGINAL.
+      // GUARDA O ZIP ORIGINAL COMO ARQUIVO.
       files.push({
         path: fullPath,
         name: filename,
         content
       });
 
-      // EXTRAÇÃO INTERNA MANTENDO A PASTA DO PRÓPRIO ZIP.
+      // EXTRAI O CONTEÚDO EM UMA PASTA SEPARADA.
+      const parent = dirname(fullPath);
+
+      const nestedPrefix = getExtractionFolder(
+        files,
+        parent,
+        filename
+      );
+
       const nestedFiles = await extractZip(
         content.buffer.slice(
           content.byteOffset,
           content.byteOffset + content.byteLength
         ),
-        fullPath,
+        nestedPrefix,
         depth + 1,
         budget
       );
 
       files.push(...nestedFiles);
+
     } else {
       files.push({
         path: fullPath,
@@ -335,6 +376,39 @@ async function extractZip(
   }
 
   return files;
+}
+
+// VERIFICA CAMINHOS QUE NÃO PODEM EXISTIR JUNTOS NO GITHUB.
+function validateGitPaths(files) {
+  const paths = files.map(file => file.path);
+
+  const seen = new Set();
+
+  for (const path of paths) {
+    const normalized = path.toLowerCase();
+
+    if (seen.has(normalized)) {
+      throw new Error(`Arquivo duplicado: ${path}`);
+    }
+
+    seen.add(normalized);
+  }
+
+  const sorted = [...paths].sort();
+
+  for (let i = 0; i < sorted.length; i++) {
+    const current = sorted[i].toLowerCase();
+
+    for (let j = i + 1; j < sorted.length; j++) {
+      const next = sorted[j].toLowerCase();
+
+      if (next.startsWith(current + "/")) {
+        throw new Error(
+          `Conflito de caminhos: "${sorted[i]}" é arquivo e também está sendo usado como pasta.`
+        );
+      }
+    }
+  }
 }
 
 async function github(path, token, options = {}) {
@@ -530,7 +604,7 @@ export async function onRequestPost({ request, env }) {
       return json({ error: "Nome de jogo inválido." }, 400);
     }
 
-    // EXTRAI O ZIP PRINCIPAL E OS ZIPs INTERNOS.
+    // EXTRAI O ZIP PRINCIPAL E TODOS OS ZIPs INTERNOS.
     const extractedFiles = await extractZip(
       await zip.arrayBuffer()
     );
@@ -559,11 +633,20 @@ export async function onRequestPost({ request, env }) {
         /\bEJS_gameUrl\s*=\s*["']([^"']+)["']/i
       );
 
-      const originalName = urlMatch
-        ? decodeURIComponent(
+      let originalName = "";
+
+      if (urlMatch) {
+        try {
+          originalName = decodeURIComponent(
             urlMatch[1].split(/[?#]/)[0].split("/").pop()
-          )
-        : "";
+          );
+        } catch {
+          originalName = urlMatch[1]
+            .split(/[?#]/)[0]
+            .split("/")
+            .pop();
+        }
+      }
 
       const originalStem = getRomStem(originalName);
 
@@ -688,15 +771,8 @@ export async function onRequestPost({ request, env }) {
       }, 400);
     }
 
-    const uniquePaths = new Set(
-      gameFiles.map(file => file.path.toLowerCase())
-    );
-
-    if (uniquePaths.size !== gameFiles.length) {
-      return json({
-        error: "Existem arquivos com nomes ou caminhos repetidos."
-      }, 400);
-    }
+    // VERIFICA DUPLICAÇÕES E CONFLITOS DE CAMINHOS.
+    validateGitPaths(gameFiles);
 
     const token = env.GITHUB_TOKEN;
     const apiBase = `/repos/${OWNER}/${REPO}`;
@@ -858,6 +934,13 @@ export async function onRequestPost({ request, env }) {
         content: catalogBytes
       }
     ];
+
+    // VERIFICA OS CAMINHOS FINAIS ANTES DE PUBLICAR.
+    validateGitPaths(
+      files.map(file => ({
+        path: file.githubPath
+      }))
+    );
 
     // CRIA OS ARQUIVOS NO GITHUB.
     const blobs = [];
