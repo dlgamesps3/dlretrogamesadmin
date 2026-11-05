@@ -92,11 +92,11 @@ function safePath(path) {
 }
 
 function isZip(name) {
-  return name.toLowerCase().endsWith(".zip");
+  return String(name || "").toLowerCase().endsWith(".zip");
 }
 
 function isRom(name) {
-  const lower = name.toLowerCase();
+  const lower = String(name || "").toLowerCase();
 
   return ROM_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
@@ -124,6 +124,7 @@ function escapeHtml(value) {
   })[char]);
 }
 
+// EXTRAI OS ZIPs E PRESERVA OS ARQUIVOS ZIP ORIGINAIS.
 async function extractZip(
   buffer,
   prefix = "",
@@ -194,8 +195,7 @@ async function extractZip(
 
     if (
       originalName.endsWith("/") ||
-      originalName.includes("__MACOSX/") ||
-      originalName.startsWith("__MACOSX/")
+      originalName.includes("__MACOSX/")
     ) {
       continue;
     }
@@ -264,6 +264,14 @@ async function extractZip(
       : cleanName;
 
     if (isZip(filename)) {
+      // GUARDA O ZIP ORIGINAL.
+      files.push({
+        path: fullPath,
+        name: filename,
+        content
+      });
+
+      // EXTRAI TAMBÉM O CONTEÚDO DO ZIP.
       const nestedFiles = await extractZip(
         content.buffer.slice(
           content.byteOffset,
@@ -275,6 +283,7 @@ async function extractZip(
       );
 
       files.push(...nestedFiles);
+
     } else {
       files.push({
         path: fullPath,
@@ -587,13 +596,13 @@ export async function onRequestPost({ request, env }) {
       }, 400);
     }
 
-    // Extrai o ZIP principal e os ZIPs encontrados dentro dele.
+    // EXTRAI O ZIP PRINCIPAL E OS ZIPs INTERNOS.
     const extractedFiles = await extractZip(
       await zip.arrayBuffer()
     );
 
-    // Procura um index.html que tenha uma ROM na mesma pasta
-    // ou em alguma subpasta.
+    // PROCURA O INDEX.HTML E UMA ROM NA MESMA PASTA
+    // OU EM ALGUMA SUBPASTA.
     const indexCandidates = extractedFiles.filter(file =>
       file.name.toLowerCase() === "index.html"
     );
@@ -623,8 +632,8 @@ export async function onRequestPost({ request, env }) {
 
     const gameFolder = dirname(selectedIndex.path);
 
-    // Preserva os arquivos da pasta do jogo:
-    // HTML, ROM, JS, CSS, imagens, WASM e arquivos auxiliares.
+    // PRESERVA OS ARQUIVOS DA PASTA DO JOGO,
+    // INCLUINDO OS ZIPs ORIGINAIS.
     const gameFiles = extractedFiles
       .map(file => {
         const relative = relativeTo(file.path, gameFolder);
@@ -693,7 +702,7 @@ export async function onRequestPost({ request, env }) {
     const pageUrl =
       `https://${OWNER}.github.io/${REPO}/${pagePath}`;
 
-    // Recupera o catálogo existente.
+    // RECUPERA O CATÁLOGO EXISTENTE.
     let games = [];
 
     try {
@@ -716,8 +725,7 @@ export async function onRequestPost({ request, env }) {
       }
     }
 
-    // Localiza o jogo anterior para preservar a capa
-    // quando nenhuma capa nova for enviada.
+    // LOCALIZA O JOGO ANTERIOR PARA PRESERVAR A CAPA.
     const previousGame = games.find(game => {
       const sameSlug = slugify(game.slug || game.name) === slug;
       const sameConsole =
@@ -788,7 +796,7 @@ export async function onRequestPost({ request, env }) {
       slug
     };
 
-    // Atualiza o jogo do mesmo console sem duplicar.
+    // ATUALIZA O JOGO SEM DUPLICAR.
     games = games.filter(game => {
       const sameSlug = slugify(game.slug || game.name) === slug;
 
@@ -837,7 +845,7 @@ export async function onRequestPost({ request, env }) {
       }
     ];
 
-    // Cria os arquivos no GitHub.
+    // CRIA OS ARQUIVOS NO GITHUB.
     const blobs = [];
 
     for (const file of files) {
