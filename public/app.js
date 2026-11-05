@@ -1,3 +1,4 @@
+
 const $ = (s) => document.querySelector(s);
 
 const loginScreen = $("#login-screen");
@@ -20,7 +21,10 @@ async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || "Ocorreu um erro.");
+    throw new Error(
+      data.error ||
+      `Erro ${response.status}: ${response.statusText || "Falha na solicitação."}`
+    );
   }
 
   return data;
@@ -136,7 +140,7 @@ function createGamesArea() {
           name="description"
           rows="5"
           maxlength="3000"
-          placeholder="Escreva uma descrição sobre o jogo..."
+          placeholder="A descrição será criada automaticamente."
         ></textarea>
       </label>
 
@@ -201,9 +205,7 @@ async function uploadGame(event) {
   event.preventDefault();
 
   const form = event.currentTarget;
-
   const button = form.querySelector('button[type="submit"]');
-
   const result = $("#game-result");
   const error = $("#game-error");
 
@@ -212,15 +214,10 @@ async function uploadGame(event) {
   result.innerHTML = "";
 
   const name = form.elements.name.value.trim();
-
   const consoleName = form.elements.console.value;
-
   const description = form.elements.description.value.trim();
-
   const downloadUrl = form.elements.downloadUrl.value.trim();
-
   const rom = form.elements.rom.files[0];
-
   const cover = form.elements.cover.files[0];
 
   if (!name) {
@@ -270,7 +267,6 @@ async function uploadGame(event) {
   if (!allowed.includes(extension)) {
     error.textContent =
       `O arquivo ${extension} não corresponde ao console selecionado.`;
-
     return;
   }
 
@@ -295,11 +291,8 @@ async function uploadGame(event) {
   const data = new FormData();
 
   data.append("name", name);
-
   data.append("console", consoleName);
-
   data.append("description", description);
-
   data.append("rom", rom);
 
   if (downloadUrl) {
@@ -322,82 +315,56 @@ async function uploadGame(event) {
     result.innerHTML = `
       <strong>JOGO PUBLICADO COM SUCESSO!</strong>
 
-      <p>
-        Nome: ${escapeHtml(response.name || name)}
-      </p>
+      <p>Nome: ${escapeHtml(response.name || name)}</p>
+      <p>Console: ${escapeHtml(response.console || consoleName)}</p>
+      <p>ROM: ${escapeHtml(response.rom || rom.name)}</p>
 
-      <p>
-        Console: ${escapeHtml(response.console || consoleName)}
-      </p>
-
-      <p>
-        ROM: ${escapeHtml(response.rom || rom.name)}
-      </p>
+      ${
+        response.description
+          ? `<p>Descrição: ${escapeHtml(response.description)}</p>`
+          : ""
+      }
 
       ${
         response.pageUrl
-          ? `
-            <p>
-              Página do jogo:
-              <a
-                href="${escapeHtml(response.pageUrl)}"
-                target="_blank"
-                rel="noopener"
-              >
+          ? `<p>Página do jogo:
+              <a href="${escapeHtml(response.pageUrl)}" target="_blank" rel="noopener">
                 ABRIR PÁGINA
               </a>
-            </p>
-          `
+            </p>`
           : ""
       }
 
       ${
         response.onlineUrl
-          ? `
-            <p>
-              Jogar online:
-              <a
-                href="${escapeHtml(response.onlineUrl)}"
-                target="_blank"
-                rel="noopener"
-              >
+          ? `<p>Jogar online:
+              <a href="${escapeHtml(response.onlineUrl)}" target="_blank" rel="noopener">
                 ABRIR EMULADOR
               </a>
-            </p>
-          `
+            </p>`
           : ""
       }
 
       ${
         response.downloadUrl
-          ? `
-            <p>
-              Download:
-              <a
-                href="${escapeHtml(response.downloadUrl)}"
-                target="_blank"
-                rel="noopener"
-              >
+          ? `<p>Download:
+              <a href="${escapeHtml(response.downloadUrl)}" target="_blank" rel="noopener">
                 ABRIR LINK
               </a>
-            </p>
-          `
+            </p>`
           : ""
       }
 
-      <p>
-        ${escapeHtml(
-          response.message || "Jogo publicado!"
-        )}
-      </p>
+      <p>${escapeHtml(response.message || "Jogo publicado!")}</p>
     `;
 
     result.classList.remove("hidden");
-
     form.reset();
 
   } catch (err) {
-    error.textContent = err.message;
+    error.textContent = `Falha ao publicar: ${err.message}`;
+    console.error("Erro ao publicar jogo:", err);
+
   } finally {
     button.disabled = false;
     button.textContent = "PUBLICAR JOGO";
@@ -415,7 +382,6 @@ async function loadUsers() {
     users = data.users || [];
 
     renderUsers();
-
     updateStats();
 
   } catch (err) {
@@ -454,7 +420,6 @@ function renderUsers() {
   if (!users.length) {
     body.innerHTML =
       '<tr><td colspan="5">Nenhum usuário cadastrado.</td></tr>';
-
     return;
   }
 
@@ -462,44 +427,26 @@ function renderUsers() {
     <tr>
       <td>
         <strong>${escapeHtml(user.username)}</strong>
-
-        ${
-          user.note
-            ? `<br><small>${escapeHtml(user.note)}</small>`
-            : ""
-        }
+        ${user.note ? `<br><small>${escapeHtml(user.note)}</small>` : ""}
       </td>
 
       <td>${escapeHtml(user.plan)}</td>
-
       <td>${escapeHtml(dateLabel(user.expiresAt))}</td>
-
       <td>${escapeHtml(statusOf(user))}</td>
 
       <td>
         <div class="actions">
-
-          <button
-            data-action="toggle"
-            data-id="${escapeHtml(user.id)}"
-          >
+          <button data-action="toggle" data-id="${escapeHtml(user.id)}">
             ${user.blocked ? "Liberar" : "Bloquear"}
           </button>
 
-          <button
-            data-action="renew"
-            data-id="${escapeHtml(user.id)}"
-          >
+          <button data-action="renew" data-id="${escapeHtml(user.id)}">
             Renovar
           </button>
 
-          <button
-            data-action="delete"
-            data-id="${escapeHtml(user.id)}"
-          >
+          <button data-action="delete" data-id="${escapeHtml(user.id)}">
             Excluir
           </button>
-
         </div>
       </td>
     </tr>
@@ -514,7 +461,6 @@ $("#login-form").addEventListener("submit", async event => {
   event.preventDefault();
 
   const form = event.currentTarget;
-
   const error = $("#login-error");
 
   error.textContent = "";
@@ -522,7 +468,6 @@ $("#login-form").addEventListener("submit", async event => {
   try {
     await api("/api/admin/login", {
       method: "POST",
-
       body: JSON.stringify({
         username: form.username.value.trim(),
         password: form.password.value
@@ -530,9 +475,7 @@ $("#login-form").addEventListener("submit", async event => {
     });
 
     form.reset();
-
     showApp();
-
     await loadUsers();
 
   } catch (err) {
@@ -549,7 +492,6 @@ $("#logout").addEventListener("click", async () => {
     await api("/api/admin/logout", {
       method: "POST"
     });
-
   } catch (err) {
     console.error(err);
   }
@@ -565,23 +507,17 @@ $("#create-form").addEventListener("submit", async event => {
   event.preventDefault();
 
   const form = event.currentTarget;
-
   const error = $("#create-error");
-
   const generated = $("#generated");
-
   const button = form.querySelector('button[type="submit"]');
 
   error.textContent = "";
-
   generated.classList.add("hidden");
-
   button.disabled = true;
 
   try {
     const data = await api("/api/admin/users", {
       method: "POST",
-
       body: JSON.stringify({
         plan: form.plan.value,
         days: Number(form.days.value),
@@ -591,14 +527,11 @@ $("#create-form").addEventListener("submit", async event => {
 
     generated.innerHTML = `
       <strong>Usuário criado!</strong>
-
       <p>Usuário: ${escapeHtml(data.username)}</p>
-
       <p>Senha: ${escapeHtml(data.password)}</p>
     `;
 
     generated.classList.remove("hidden");
-
     form.reset();
 
     await loadUsers();
@@ -621,7 +554,6 @@ $("#users-body").addEventListener("click", async event => {
   if (!button) return;
 
   const id = button.dataset.id;
-
   const action = button.dataset.action;
 
   try {
@@ -676,7 +608,6 @@ async function checkSession() {
     await api("/api/admin/me");
 
     showApp();
-
     await loadUsers();
 
   } catch {
