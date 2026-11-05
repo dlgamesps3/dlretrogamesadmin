@@ -97,6 +97,7 @@ function isZip(name) {
 
 function isRom(name) {
   const lower = name.toLowerCase();
+
   return ROM_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
@@ -200,6 +201,7 @@ async function extractZip(
     }
 
     const cleanName = safePath(originalName);
+
     if (!cleanName) continue;
 
     const filename = cleanName.split("/").pop();
@@ -312,7 +314,8 @@ function createGamePage({
   consoleName,
   onlineUrl,
   coverUrl,
-  downloadUrl
+  downloadUrl,
+  description
 }) {
   const safeName = escapeHtml(name);
   const safeConsole = escapeHtml(consoleName);
@@ -320,14 +323,30 @@ function createGamePage({
   const safeCover = escapeHtml(coverUrl);
   const safeDownload = escapeHtml(downloadUrl);
 
+  const finalDescription = description ||
+    `Conheça ${name}, um clássico do console ${consoleName}. Prepare-se para reviver essa aventura retrô!`;
+
+  const safeDescription = escapeHtml(finalDescription);
+
+  const scriptOnlineUrl = JSON.stringify(onlineUrl)
+    .replace(/</g, "\\u003c");
+
+  const scriptName = JSON.stringify(name)
+    .replace(/</g, "\\u003c");
+
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>${safeName} - DL RETRO GAMES</title>
+
 <style>
-*{box-sizing:border-box}
+*{
+  box-sizing:border-box;
+}
+
 body{
   margin:0;
   padding:20px;
@@ -336,50 +355,159 @@ body{
   font-family:Arial,sans-serif;
   text-align:center;
 }
-.container{max-width:950px;margin:auto}
-h1{color:#00eaff}
-.console{color:#aaa;margin-bottom:20px}
+
+.container{
+  max-width:850px;
+  margin:auto;
+}
+
+h1{
+  color:#00eaff;
+  font-size:30px;
+}
+
+.console{
+  color:#aaa;
+  margin-bottom:20px;
+}
+
 .cover{
-  width:180px;
-  max-width:80%;
+  width:220px;
+  max-width:85%;
   border-radius:12px;
   margin:10px auto 20px;
+  display:block;
 }
-.buttons{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+.description{
+  background:#111a2d;
+  border:1px solid #193c55;
+  border-radius:12px;
+  padding:20px;
+  margin:20px auto;
+  text-align:left;
+  line-height:1.7;
+  color:#ddd;
+}
+
+.description h2{
+  color:#00eaff;
+  margin-top:0;
+}
+
+.buttons{
+  display:flex;
+  gap:12px;
+  justify-content:center;
+  flex-wrap:wrap;
+  margin:25px 0;
+}
+
 .btn{
   display:inline-block;
-  padding:14px 22px;
+  padding:15px 24px;
   border-radius:8px;
   background:#00d9ff;
   color:#001018;
   font-weight:bold;
   text-decoration:none;
+  border:0;
+  cursor:pointer;
+  font-size:15px;
 }
-.btn.download{background:#00e676}
-iframe{
+
+.btn.download{
+  background:#00e676;
+}
+
+#emulator{
+  display:none;
+  margin-top:25px;
+}
+
+#emulator iframe{
   width:100%;
   height:70vh;
   min-height:400px;
-  margin-top:25px;
   border:2px solid #00d9ff;
   border-radius:10px;
   background:#000;
 }
 </style>
 </head>
+
 <body>
 <div class="container">
+
   <h1>${safeName}</h1>
+
   <div class="console">${safeConsole}</div>
-  <img class="cover" src="${safeCover}" alt="${safeName}">
+
+  <img
+    class="cover"
+    src="${safeCover}"
+    alt="${safeName}"
+  >
+
+  <section class="description">
+    <h2>Sobre o jogo</h2>
+    <p>${safeDescription}</p>
+  </section>
+
   <div class="buttons">
-    <a class="btn" href="${safeOnline}" target="_blank" rel="noopener">
-      ABRIR JOGO
+
+    <button
+      class="btn"
+      id="play-button"
+      type="button"
+    >
+      JOGAR ONLINE
+    </button>
+
+    ${downloadUrl ? `
+    <a
+      class="btn download"
+      href="${safeDownload}"
+      target="_blank"
+      rel="noopener"
+    >
+      BAIXAR JOGO
     </a>
-    ${downloadUrl ? `<a class="btn download" href="${safeDownload}" target="_blank" rel="noopener">BAIXAR JOGO</a>` : ""}
+    ` : ""}
+
   </div>
-  <iframe src="${safeOnline}" title="${safeName}" allowfullscreen></iframe>
+
+  <div id="emulator"></div>
+
 </div>
+
+<script>
+document.getElementById("play-button").addEventListener("click", function() {
+
+  const emulator = document.getElementById("emulator");
+
+  if (!emulator.dataset.loaded) {
+
+    const frame = document.createElement("iframe");
+
+    frame.src = ${scriptOnlineUrl};
+    frame.title = ${scriptName};
+    frame.allowFullscreen = true;
+
+    emulator.appendChild(frame);
+    emulator.dataset.loaded = "true";
+
+  }
+
+  emulator.style.display = "block";
+
+  emulator.scrollIntoView({
+    behavior: "smooth"
+  });
+
+});
+</script>
+
 </body>
 </html>`;
 }
@@ -399,62 +527,95 @@ export async function onRequestPost({ request, env }) {
     const form = await request.formData();
 
     const name = String(form.get("name") || "").trim();
-    const consoleInput = String(form.get("console") || "").trim();
+
+    const consoleInput = String(
+      form.get("console") || ""
+    ).trim();
+
     const consoleName = normalizeConsole(consoleInput);
-    const downloadUrl = String(form.get("downloadUrl") || "").trim();
+
+    const downloadUrl = String(
+      form.get("downloadUrl") || ""
+    ).trim();
+
+    const description = String(
+      form.get("description") || ""
+    ).trim();
+
     const zip = form.get("zip");
     const cover = form.get("cover");
 
     if (!name) {
-      return json({ error: "Informe o nome do jogo." }, 400);
+      return json({
+        error: "Informe o nome do jogo."
+      }, 400);
     }
 
     if (downloadUrl && !/^https?:\/\//i.test(downloadUrl)) {
-      return json({ error: "Link de download inválido." }, 400);
+      return json({
+        error: "Link de download inválido."
+      }, 400);
     }
 
-    if (!zip || typeof zip.arrayBuffer !== "function" || zip.size === 0) {
-      return json({ error: "Envie o ZIP do jogo." }, 400);
+    if (
+      !zip ||
+      typeof zip.arrayBuffer !== "function" ||
+      zip.size === 0
+    ) {
+      return json({
+        error: "Envie o ZIP do jogo."
+      }, 400);
     }
 
     if (zip.size > MAX_FILE_SIZE) {
-      return json({ error: "O ZIP ultrapassa 50 MB." }, 400);
+      return json({
+        error: "O ZIP ultrapassa 50 MB."
+      }, 400);
+    }
+
+    if (description.length > 3000) {
+      return json({
+        error: "A descrição ultrapassa 3000 caracteres."
+      }, 400);
     }
 
     const slug = slugify(name);
 
     if (!slug) {
-      return json({ error: "Nome de jogo inválido." }, 400);
+      return json({
+        error: "Nome de jogo inválido."
+      }, 400);
     }
 
-    // Extrai o ZIP principal e também os ZIPs encontrados dentro dele.
-    const extractedFiles = await extractZip(await zip.arrayBuffer());
+    // Extrai o ZIP principal e os ZIPs encontrados dentro dele.
+    const extractedFiles = await extractZip(
+      await zip.arrayBuffer()
+    );
 
-    // Procura um index.html que tenha pelo menos uma ROM na mesma pasta
+    // Procura um index.html que tenha uma ROM na mesma pasta
     // ou em alguma subpasta.
     const indexCandidates = extractedFiles.filter(file =>
       file.name.toLowerCase() === "index.html"
     );
 
     let selectedIndex = null;
-    let selectedRoms = [];
 
     for (const candidate of indexCandidates) {
       const folder = dirname(candidate.path);
 
       const matchingRoms = extractedFiles.filter(file => {
         const relative = relativeTo(file.path, folder);
+
         return relative !== null && isRom(file.name);
       });
 
       if (matchingRoms.length > 0) {
         selectedIndex = candidate;
-        selectedRoms = matchingRoms;
         break;
       }
     }
 
-    if (!selectedIndex || selectedRoms.length === 0) {
+    if (!selectedIndex) {
       return json({
         error: "O ZIP precisa conter index.html e pelo menos uma ROM compatível. O sistema também procura dentro de ZIPs internos."
       }, 400);
@@ -462,8 +623,8 @@ export async function onRequestPost({ request, env }) {
 
     const gameFolder = dirname(selectedIndex.path);
 
-    // Preserva TODOS os arquivos da pasta do jogo:
-    // index.html, ROMs, JS, CSS, imagens, WASM e arquivos auxiliares.
+    // Preserva os arquivos da pasta do jogo:
+    // HTML, ROM, JS, CSS, imagens, WASM e arquivos auxiliares.
     const gameFiles = extractedFiles
       .map(file => {
         const relative = relativeTo(file.path, gameFolder);
@@ -482,7 +643,9 @@ export async function onRequestPost({ request, env }) {
       file.path.toLowerCase() === "index.html"
     );
 
-    const hasRom = gameFiles.some(file => isRom(file.name));
+    const hasRom = gameFiles.some(file =>
+      isRom(file.name)
+    );
 
     if (!hasIndex || !hasRom) {
       return json({
@@ -490,7 +653,6 @@ export async function onRequestPost({ request, env }) {
       }, 400);
     }
 
-    // Impede caminhos repetidos.
     const uniquePaths = new Set(
       gameFiles.map(file => file.path.toLowerCase())
     );
@@ -531,31 +693,6 @@ export async function onRequestPost({ request, env }) {
     const pageUrl =
       `https://${OWNER}.github.io/${REPO}/${pagePath}`;
 
-    let coverPath = `${gameDirectory}/capa.jpg`;
-    let coverExtension = ".jpg";
-
-    if (cover && typeof cover.arrayBuffer === "function" && cover.size > 0) {
-      if (cover.size > 8 * 1024 * 1024) {
-        return json({ error: "A capa ultrapassa 8 MB." }, 400);
-      }
-
-      coverExtension = cover.type === "image/png" ? ".png"
-        : cover.type === "image/webp" ? ".webp"
-        : cover.type === "image/jpeg" ? ".jpg"
-        : null;
-
-      if (!coverExtension) {
-        return json({
-          error: "A capa precisa ser JPG, PNG ou WEBP."
-        }, 400);
-      }
-
-      coverPath = `${gameDirectory}/capa${coverExtension}`;
-    }
-
-    const coverUrl =
-      `https://${OWNER}.github.io/${REPO}/${coverPath}`;
-
     // Recupera o catálogo existente.
     let games = [];
 
@@ -565,13 +702,79 @@ export async function onRequestPost({ request, env }) {
         token
       );
 
-      games = JSON.parse(decodeBase64(existing.content));
+      games = JSON.parse(
+        decodeBase64(existing.content)
+      );
 
-      if (!Array.isArray(games)) games = [];
+      if (!Array.isArray(games)) {
+        games = [];
+      }
+
     } catch (error) {
       if (!String(error.message).includes("Not Found")) {
         throw error;
       }
+    }
+
+    // Localiza o jogo anterior para preservar a capa
+    // quando nenhuma capa nova for enviada.
+    const previousGame = games.find(game => {
+      const sameSlug = slugify(game.slug || game.name) === slug;
+      const sameConsole =
+        normalizeConsole(game.console) === consoleName;
+
+      return sameSlug && sameConsole;
+    });
+
+    let coverPath = "";
+    let coverUrl = "";
+
+    let coverExtension = null;
+    let coverContent = null;
+
+    if (
+      cover &&
+      typeof cover.arrayBuffer === "function" &&
+      cover.size > 0
+    ) {
+      if (cover.size > 8 * 1024 * 1024) {
+        return json({
+          error: "A capa ultrapassa 8 MB."
+        }, 400);
+      }
+
+      coverExtension =
+        cover.type === "image/png" ? ".png" :
+        cover.type === "image/webp" ? ".webp" :
+        cover.type === "image/jpeg" ? ".jpg" :
+        null;
+
+      if (!coverExtension) {
+        return json({
+          error: "A capa precisa ser JPG, PNG ou WEBP."
+        }, 400);
+      }
+
+      coverPath =
+        `${gameDirectory}/capa${coverExtension}`;
+
+      coverUrl =
+        `https://${OWNER}.github.io/${REPO}/${coverPath}`;
+
+      coverContent = new Uint8Array(
+        await cover.arrayBuffer()
+      );
+
+    } else if (previousGame && previousGame.coverUrl) {
+
+      coverUrl = previousGame.coverUrl;
+
+    } else {
+
+      coverPath = "img/capas/sem-capa.jpg";
+
+      coverUrl =
+        `https://${OWNER}.github.io/${REPO}/${coverPath}`;
     }
 
     const newGame = {
@@ -581,12 +784,14 @@ export async function onRequestPost({ request, env }) {
       pageUrl,
       downloadUrl: downloadUrl || "",
       coverUrl,
+      description,
       slug
     };
 
-    // Atualiza o mesmo jogo no mesmo console, sem duplicar.
+    // Atualiza o jogo do mesmo console sem duplicar.
     games = games.filter(game => {
       const sameSlug = slugify(game.slug || game.name) === slug;
+
       const sameConsole =
         normalizeConsole(game.console) === consoleName;
 
@@ -605,45 +810,48 @@ export async function onRequestPost({ request, env }) {
         consoleName,
         onlineUrl,
         coverUrl,
-        downloadUrl
+        downloadUrl,
+        description
       })
     );
 
     const files = [
       ...gameFiles.map(file => ({
-        ...file,
-        githubPath: `${gameDirectory}/${file.path}`
+        githubPath: `${gameDirectory}/${file.path}`,
+        content: file.content
       })),
-      {
-        name: `capa${coverExtension}`,
+
+      ...(coverContent ? [{
         githubPath: coverPath,
-        content: cover && cover.size > 0
-          ? new Uint8Array(await cover.arrayBuffer())
-          : null
-      },
+        content: coverContent
+      }] : []),
+
       {
-        name: `${slug}.html`,
         githubPath: pagePath,
         content: pageBytes
       },
+
       {
-        name: "games.json",
         githubPath: "games.json",
         content: catalogBytes
       }
-    ].filter(file => file.content !== null);
+    ];
 
     // Cria os arquivos no GitHub.
     const blobs = [];
 
     for (const file of files) {
-      const blob = await github(`${apiBase}/git/blobs`, token, {
-        method: "POST",
-        body: JSON.stringify({
-          content: base64(file.content),
-          encoding: "base64"
-        })
-      });
+      const blob = await github(
+        `${apiBase}/git/blobs`,
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            content: base64(file.content),
+            encoding: "base64"
+          })
+        }
+      );
 
       blobs.push({
         path: file.githubPath,
@@ -653,27 +861,41 @@ export async function onRequestPost({ request, env }) {
       });
     }
 
-    const tree = await github(`${apiBase}/git/trees`, token, {
-      method: "POST",
-      body: JSON.stringify({
-        base_tree: parentCommit.tree.sha,
-        tree: blobs
-      })
-    });
+    const tree = await github(
+      `${apiBase}/git/trees`,
+      token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          base_tree: parentCommit.tree.sha,
+          tree: blobs
+        })
+      }
+    );
 
-    const commit = await github(`${apiBase}/git/commits`, token, {
-      method: "POST",
-      body: JSON.stringify({
-        message: `Publicar jogo: ${name}`,
-        tree: tree.sha,
-        parents: [parentSha]
-      })
-    });
+    const commit = await github(
+      `${apiBase}/git/commits`,
+      token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message: `Publicar jogo: ${name}`,
+          tree: tree.sha,
+          parents: [parentSha]
+        })
+      }
+    );
 
-    await github(`${apiBase}/git/refs/heads/${BRANCH}`, token, {
-      method: "PATCH",
-      body: JSON.stringify({ sha: commit.sha })
-    });
+    await github(
+      `${apiBase}/git/refs/heads/${BRANCH}`,
+      token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          sha: commit.sha
+        })
+      }
+    );
 
     return json({
       ok: true,
@@ -683,6 +905,7 @@ export async function onRequestPost({ request, env }) {
       pageUrl,
       downloadUrl: downloadUrl || null,
       coverUrl,
+      description,
       folder: `${gameDirectory}/`,
       catalogUrl: gamesUrl,
       message: "Jogo publicado e adicionado ao catálogo!"
