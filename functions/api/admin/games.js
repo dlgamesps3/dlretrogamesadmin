@@ -5,14 +5,12 @@ const OWNER = "dlgamesps3";
 const REPO = "dlretrogames";
 const BRANCH = "main";
 
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
 const ROM_EXTENSIONS = [
   ".sfc", ".smc", ".nes", ".gba", ".gbc",
   ".gb", ".md", ".gen", ".bin", ".iso"
 ];
-
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const MAX_TOTAL_SIZE = 150 * 1024 * 1024;
-const MAX_ZIP_DEPTH = 3;
 
 function slugify(value) {
   return String(value || "jogo")
@@ -29,6 +27,8 @@ function normalizeConsole(value) {
 
   if (text.includes("snes") || text.includes("super nintendo")) return "SNES";
   if (text.includes("gba") || text.includes("game boy advance")) return "GBA";
+  if (text.includes("gbc") || text.includes("game boy color")) return "GBC";
+  if (text.includes("game boy") || text === "gb") return "GB";
   if (text.includes("nes") || text.includes("nintendo")) return "NES";
 
   if (
@@ -40,6 +40,34 @@ function normalizeConsole(value) {
   if (text.includes("ps1") || text.includes("playstation")) return "PS1";
 
   return slugify(value) || "SNES";
+}
+
+function getCore(consoleName) {
+  const cores = {
+    "SNES": "snes9x",
+    "GBA": "mgba",
+    "GBC": "gambatte",
+    "GB": "gambatte",
+    "NES": "fceumm",
+    "Mega-Drive": "genesis_plus_gx",
+    "PS1": "pcsx_rearmed"
+  };
+
+  return cores[consoleName] || null;
+}
+
+function getExtensions(consoleName) {
+  const extensions = {
+    "SNES": [".sfc", ".smc"],
+    "GBA": [".gba"],
+    "GBC": [".gbc"],
+    "GB": [".gb"],
+    "NES": [".nes"],
+    "Mega-Drive": [".md", ".gen", ".bin"],
+    "PS1": [".iso", ".bin"]
+  };
+
+  return extensions[consoleName] || ROM_EXTENSIONS;
 }
 
 function base64(bytes) {
@@ -59,45 +87,6 @@ function decodeBase64(value) {
   return new TextDecoder().decode(bytes);
 }
 
-function safePath(path) {
-  const normalized = String(path || "").replace(/\\/g, "/");
-
-  if (
-    normalized.startsWith("/") ||
-    /^[a-zA-Z]:/.test(normalized) ||
-    normalized.split("/").some(part => part === "..")
-  ) return null;
-
-  const parts = normalized
-    .split("/")
-    .filter(part => part && part !== ".");
-
-  if (!parts.length) return null;
-
-  return parts.join("/");
-}
-
-function isZip(name) {
-  return String(name || "").toLowerCase().endsWith(".zip");
-}
-
-function isRom(name) {
-  const lower = String(name || "").toLowerCase();
-  return ROM_EXTENSIONS.some(ext => lower.endsWith(ext));
-}
-
-function dirname(path) {
-  const index = path.lastIndexOf("/");
-  return index < 0 ? "" : path.slice(0, index);
-}
-
-function relativeTo(path, prefix) {
-  if (!prefix) return path;
-  if (path === prefix) return "";
-  if (!path.startsWith(prefix + "/")) return null;
-  return path.slice(prefix.length + 1);
-}
-
 function escapeHtml(value) {
   return String(value || "").replace(/[&<>"']/g, char => ({
     "&": "&amp;",
@@ -108,329 +97,138 @@ function escapeHtml(value) {
   })[char]);
 }
 
-function sameBytes(a, b) {
-  if (!a || !b || a.length !== b.length) return false;
-
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-
-  return true;
-}
-
-function getRomStem(filename) {
-  return String(filename || "")
-    .split(/[?#]/)[0]
-    .split("/")
-    .pop()
-    .replace(/\.zip$/i, "")
-    .replace(/\.[^.]+$/, "")
-    .toLowerCase();
-}
-
-function getUniqueRomName(files, originalName, content) {
-  const safeName = originalName
+function safeRomName(filename) {
+  const original = String(filename || "")
     .replace(/\\/g, "/")
     .split("/")
-    .pop()
-    .replace(/[^a-zA-Z0-9._-]/g, "_");
+    .pop();
 
-  const dot = safeName.lastIndexOf(".");
-  const stem = dot > 0 ? safeName.slice(0, dot) : safeName;
-  const extension = dot > 0 ? safeName.slice(dot) : "";
-
-  let candidate = safeName;
-  let counter = 1;
-
-  while (true) {
-    const existing = files.find(file =>
-      file.path.toLowerCase() === candidate.toLowerCase()
-    );
-
-    if (!existing) return candidate;
-
-    if (sameBytes(existing.content, content)) {
-      return existing.path;
-    }
-
-    candidate = counter === 1
-      ? `${stem}_extraido${extension}`
-      : `${stem}_extraido_${counter}${extension}`;
-
-    counter++;
-  }
+  return original
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/^\.+/, "");
 }
 
-// ESCOLHE UMA PASTA DE EXTRAÇÃO SEM CONFLITAR COM O ZIP ORIGINAL.
-function getExtractionFolder(files, parent, filename) {
-  const archiveName = filename.replace(/\.zip$/i, "");
-  let counter = 1;
-
-  while (true) {
-    const suffix = counter === 1
-      ? "_extraido"
-      : `_extraido_${counter}`;
-
-    const folderName = `${archiveName}${suffix}`;
-
-    const candidate = parent
-      ? `${parent}/${folderName}`
-      : folderName;
-
-    const conflict = files.some(file => {
-      const existing = file.path.toLowerCase();
-      const target = candidate.toLowerCase();
-
-      return existing === target ||
-        existing.startsWith(target + "/") ||
-        target.startsWith(existing + "/");
-    });
-
-    if (!conflict) return candidate;
-
-    counter++;
-  }
+function isRom(filename) {
+  const lower = String(filename || "").toLowerCase();
+  return ROM_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
-// EXTRAI ZIPs INTERNOS PRESERVANDO OS ARQUIVOS ZIP ORIGINAIS.
-// O CONTEÚDO DE CADA ZIP INTERNO VAI PARA UMA PASTA IRMÃ,
-// NUNCA PARA UMA PASTA COM O MESMO NOME DO ARQUIVO ZIP.
-async function extractZip(
-  buffer,
-  prefix = "",
-  depth = 0,
-  budget = { total: 0 }
-) {
-  if (depth > MAX_ZIP_DEPTH) {
-    throw new Error("Existem ZIPs internos demais. Limite de 3 níveis.");
-  }
+function createEmulatorIndex({
+  name,
+  consoleName,
+  romFilename
+}) {
+  const core = getCore(consoleName);
 
-  const bytes = new Uint8Array(buffer);
-  const view = new DataView(buffer);
+  const safeName = escapeHtml(name);
+  const safeConsole = escapeHtml(consoleName);
 
-  let end = -1;
+  // O nome do arquivo é codificado para funcionar
+  // mesmo quando possui espaços ou caracteres especiais.
+  const romUrl = "./" +
+    romFilename.split("/").map(encodeURIComponent).join("/");
 
-  for (
-    let i = bytes.length - 22;
-    i >= Math.max(0, bytes.length - 65557);
-    i--
-  ) {
-    if (
-      i + 4 <= bytes.length &&
-      view.getUint32(i, true) === 0x06054b50
-    ) {
-      end = i;
-      break;
-    }
-  }
+  const safeRomUrl = JSON.stringify(romUrl);
+  const safeGameName = JSON.stringify(name);
 
-  if (end < 0) {
-    throw new Error("ZIP inválido ou não suportado.");
-  }
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  const count = view.getUint16(end + 10, true);
-  const directoryOffset = view.getUint32(end + 16, true);
+<title>${safeName} - DL RETRO GAMES</title>
 
-  let position = directoryOffset;
-  const files = [];
-
-  for (let i = 0; i < count; i++) {
-    if (
-      position + 46 > bytes.length ||
-      view.getUint32(position, true) !== 0x02014b50
-    ) {
-      throw new Error("Estrutura ZIP inválida.");
-    }
-
-    const method = view.getUint16(position + 10, true);
-    const compressedSize = view.getUint32(position + 20, true);
-    const uncompressedSize = view.getUint32(position + 24, true);
-    const nameLength = view.getUint16(position + 28, true);
-    const extraLength = view.getUint16(position + 30, true);
-    const commentLength = view.getUint16(position + 32, true);
-    const localOffset = view.getUint32(position + 42, true);
-
-    const nameStart = position + 46;
-    const nameEnd = nameStart + nameLength;
-
-    if (nameEnd > bytes.length) {
-      throw new Error("Nome de arquivo ZIP inválido.");
-    }
-
-    const originalName = new TextDecoder().decode(
-      bytes.subarray(nameStart, nameEnd)
-    );
-
-    position += 46 + nameLength + extraLength + commentLength;
-
-    if (
-      originalName.endsWith("/") ||
-      originalName.includes("__MACOSX/")
-    ) continue;
-
-    const cleanName = safePath(originalName);
-    if (!cleanName) continue;
-
-    const filename = cleanName.split("/").pop();
-
-    if (!filename || filename.startsWith(".")) continue;
-
-    if (uncompressedSize > MAX_FILE_SIZE) {
-      throw new Error(`O arquivo ${filename} ultrapassa 50 MB.`);
-    }
-
-    if (
-      localOffset + 30 > bytes.length ||
-      view.getUint32(localOffset, true) !== 0x04034b50
-    ) {
-      throw new Error("Arquivo ZIP inválido.");
-    }
-
-    const localNameLength = view.getUint16(localOffset + 26, true);
-    const localExtraLength = view.getUint16(localOffset + 28, true);
-
-    const dataStart =
-      localOffset + 30 + localNameLength + localExtraLength;
-
-    const dataEnd = dataStart + compressedSize;
-
-    if (dataEnd > bytes.length) {
-      throw new Error("Dados incompletos no ZIP.");
-    }
-
-    const compressed = bytes.slice(dataStart, dataEnd);
-
-    let content;
-
-    if (method === 0) {
-      content = compressed;
-    } else if (method === 8) {
-      const stream = new Blob([compressed])
-        .stream()
-        .pipeThrough(new DecompressionStream("deflate-raw"));
-
-      content = new Uint8Array(
-        await new Response(stream).arrayBuffer()
-      );
-    } else {
-      throw new Error("Compressão ZIP não suportada.");
-    }
-
-    if (content.length > MAX_FILE_SIZE) {
-      throw new Error(`O arquivo ${filename} ultrapassa 50 MB.`);
-    }
-
-    if (
-      uncompressedSize !== 0 &&
-      content.length !== uncompressedSize
-    ) {
-      throw new Error(`Tamanho inválido no arquivo ${filename}.`);
-    }
-
-    budget.total += content.length;
-
-    if (budget.total > MAX_TOTAL_SIZE) {
-      throw new Error("O conteúdo extraído ultrapassa 150 MB.");
-    }
-
-    const fullPath = prefix
-      ? `${prefix}/${cleanName}`
-      : cleanName;
-
-    if (isZip(filename)) {
-      // GUARDA O ZIP ORIGINAL COMO ARQUIVO.
-      files.push({
-        path: fullPath,
-        name: filename,
-        content
-      });
-
-      // EXTRAI O CONTEÚDO EM UMA PASTA SEPARADA.
-      const parent = dirname(fullPath);
-
-      const nestedPrefix = getExtractionFolder(
-        files,
-        parent,
-        filename
-      );
-
-      const nestedFiles = await extractZip(
-        content.buffer.slice(
-          content.byteOffset,
-          content.byteOffset + content.byteLength
-        ),
-        nestedPrefix,
-        depth + 1,
-        budget
-      );
-
-      files.push(...nestedFiles);
-
-    } else {
-      files.push({
-        path: fullPath,
-        name: filename,
-        content
-      });
-    }
-  }
-
-  return files;
+<style>
+* {
+  box-sizing: border-box;
 }
 
-// VERIFICA CAMINHOS QUE NÃO PODEM EXISTIR JUNTOS NO GITHUB.
-function validateGitPaths(files) {
-  const paths = files.map(file => file.path);
-
-  const seen = new Set();
-
-  for (const path of paths) {
-    const normalized = path.toLowerCase();
-
-    if (seen.has(normalized)) {
-      throw new Error(`Arquivo duplicado: ${path}`);
-    }
-
-    seen.add(normalized);
-  }
-
-  const sorted = [...paths].sort();
-
-  for (let i = 0; i < sorted.length; i++) {
-    const current = sorted[i].toLowerCase();
-
-    for (let j = i + 1; j < sorted.length; j++) {
-      const next = sorted[j].toLowerCase();
-
-      if (next.startsWith(current + "/")) {
-        throw new Error(
-          `Conflito de caminhos: "${sorted[i]}" é arquivo e também está sendo usado como pasta.`
-        );
-      }
-    }
-  }
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+  background: #050914;
+  color: #fff;
+  font-family: Arial, sans-serif;
 }
 
-async function github(path, token, options = {}) {
-  const response = await fetch(`https://api.github.com${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-      "User-Agent": "DL-RETRO-GAMES",
-      ...(options.headers || {})
-    }
-  });
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 
-  const data = await response.json().catch(() => ({}));
+.header {
+  width: 100%;
+  padding: 15px;
+  text-align: center;
+  background: #0b1426;
+  border-bottom: 1px solid #00d9ff;
+}
 
-  if (!response.ok) {
-    throw new Error(data.message || "Erro ao acessar o GitHub.");
-  }
+.header h1 {
+  margin: 0;
+  color: #00eaff;
+  font-size: 22px;
+}
 
-  return data;
+.header p {
+  margin: 7px 0 0;
+  color: #aaa;
+  font-size: 13px;
+}
+
+#game {
+  width: 100%;
+  max-width: 1200px;
+  min-height: 70vh;
+  margin: 15px auto;
+  background: #000;
+}
+
+.footer {
+  padding: 15px;
+  color: #777;
+  font-size: 12px;
+  text-align: center;
+}
+</style>
+</head>
+
+<body>
+
+<header class="header">
+  <h1>${safeName}</h1>
+  <p>${safeConsole} • DL RETRO GAMES</p>
+</header>
+
+<div id="game"></div>
+
+<div class="footer">
+  DL RETRO GAMES - Jogos clássicos
+</div>
+
+<script>
+window.EJS_player = "#game";
+window.EJS_core = ${JSON.stringify(core)};
+window.EJS_gameUrl = ${safeRomUrl};
+window.EJS_gameName = ${safeGameName};
+window.EJS_pathtodata =
+  "https://cdn.emulatorjs.org/stable/data/";
+
+window.EJS_startOnLoaded = true;
+</script>
+
+<script
+  src="https://cdn.emulatorjs.org/stable/data/loader.js">
+</script>
+
+</body>
+</html>`;
 }
 
 function createGamePage({
@@ -462,6 +260,7 @@ function createGamePage({
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>${safeName} - DL RETRO GAMES</title>
 
 <style>
@@ -545,8 +344,63 @@ document.getElementById("play-button").addEventListener("click", function() {
   emulator.scrollIntoView({ behavior: "smooth" });
 });
 </script>
+
 </body>
 </html>`;
+}
+
+async function github(path, token, options = {}) {
+  const response = await fetch(
+    `https://api.github.com${path}`,
+    {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+        "User-Agent": "DL-RETRO-GAMES",
+        ...(options.headers || {})
+      }
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.message || "Erro ao acessar o GitHub.");
+  }
+
+  return data;
+}
+
+function validateGitPaths(files) {
+  const paths = files.map(file => file.path);
+  const seen = new Set();
+
+  for (const path of paths) {
+    const normalized = path.toLowerCase();
+
+    if (seen.has(normalized)) {
+      throw new Error(`Arquivo duplicado: ${path}`);
+    }
+
+    seen.add(normalized);
+  }
+
+  const sorted = [...paths].sort();
+
+  for (let i = 0; i < sorted.length; i++) {
+    const current = sorted[i].toLowerCase();
+
+    for (let j = i + 1; j < sorted.length; j++) {
+      const next = sorted[j].toLowerCase();
+
+      if (next.startsWith(current + "/")) {
+        throw new Error(`Conflito de caminhos: ${sorted[i]}`);
+      }
+    }
+  }
 }
 
 export async function onRequestPost({ request, env }) {
@@ -566,10 +420,19 @@ export async function onRequestPost({ request, env }) {
     const name = String(form.get("name") || "").trim();
     const consoleInput = String(form.get("console") || "").trim();
     const consoleName = normalizeConsole(consoleInput);
-    const downloadUrl = String(form.get("downloadUrl") || "").trim();
-    const description = String(form.get("description") || "").trim();
 
-    const zip = form.get("zip");
+    const downloadUrl = String(
+      form.get("downloadUrl") || ""
+    ).trim();
+
+    const description = String(
+      form.get("description") || ""
+    ).trim();
+
+    // Aceita o campo novo "rom".
+    // O campo antigo "zip" é aceito apenas como nome
+    // alternativo do campo, mas o arquivo precisa ser ROM.
+    const rom = form.get("rom") || form.get("zip");
     const cover = form.get("cover");
 
     if (!name) {
@@ -581,15 +444,19 @@ export async function onRequestPost({ request, env }) {
     }
 
     if (
-      !zip ||
-      typeof zip.arrayBuffer !== "function" ||
-      zip.size === 0
+      !rom ||
+      typeof rom.arrayBuffer !== "function" ||
+      rom.size === 0
     ) {
-      return json({ error: "Envie o ZIP do jogo." }, 400);
+      return json({
+        error: "Selecione o arquivo da ROM."
+      }, 400);
     }
 
-    if (zip.size > MAX_FILE_SIZE) {
-      return json({ error: "O ZIP ultrapassa 50 MB." }, 400);
+    if (rom.size > MAX_FILE_SIZE) {
+      return json({
+        error: "A ROM ultrapassa 50 MB."
+      }, 400);
     }
 
     if (description.length > 3000) {
@@ -601,178 +468,45 @@ export async function onRequestPost({ request, env }) {
     const slug = slugify(name);
 
     if (!slug) {
-      return json({ error: "Nome de jogo inválido." }, 400);
-    }
-
-    // EXTRAI O ZIP PRINCIPAL E TODOS OS ZIPs INTERNOS.
-    const extractedFiles = await extractZip(
-      await zip.arrayBuffer()
-    );
-
-    // PROCURA O INDEX.HTML E UMA ROM COMPATÍVEL.
-    const indexCandidates = extractedFiles.filter(file =>
-      file.name.toLowerCase() === "index.html"
-    );
-
-    let selectedIndex = null;
-    let selectedRom = null;
-
-    for (const candidate of indexCandidates) {
-      const folder = dirname(candidate.path);
-
-      const matchingRoms = extractedFiles.filter(file => {
-        const relative = relativeTo(file.path, folder);
-        return relative !== null && isRom(file.name);
-      });
-
-      if (matchingRoms.length === 0) continue;
-
-      const html = new TextDecoder().decode(candidate.content);
-
-      const urlMatch = html.match(
-        /\bEJS_gameUrl\s*=\s*["']([^"']+)["']/i
-      );
-
-      let originalName = "";
-
-      if (urlMatch) {
-        try {
-          originalName = decodeURIComponent(
-            urlMatch[1].split(/[?#]/)[0].split("/").pop()
-          );
-        } catch {
-          originalName = urlMatch[1]
-            .split(/[?#]/)[0]
-            .split("/")
-            .pop();
-        }
-      }
-
-      const originalStem = getRomStem(originalName);
-
-      // PRIMEIRO TENTA ENCONTRAR A ROM PELO NOME ORIGINAL.
-      selectedRom = matchingRoms.find(file => {
-        const stem = getRomStem(file.name);
-
-        return originalStem &&
-          (
-            stem === originalStem ||
-            stem.includes(originalStem) ||
-            originalStem.includes(stem)
-          );
-      });
-
-      // SE NÃO ENCONTRAR PELO NOME, USA O FORMATO DO CONSOLE.
-      if (!selectedRom) {
-        const preferredExtensions = {
-          "SNES": [".sfc", ".smc"],
-          "GBA": [".gba"],
-          "NES": [".nes"],
-          "Mega-Drive": [".md", ".gen", ".bin"],
-          "PS1": [".iso", ".bin"]
-        };
-
-        const extensions = preferredExtensions[consoleName] || [];
-
-        selectedRom = matchingRoms.find(file =>
-          extensions.some(ext =>
-            file.name.toLowerCase().endsWith(ext)
-          )
-        ) || matchingRoms[0];
-      }
-
-      selectedIndex = candidate;
-      break;
-    }
-
-    if (!selectedIndex || !selectedRom) {
       return json({
-        error: "Não encontrei o index.html e uma ROM compatível no ZIP."
+        error: "Nome de jogo inválido."
       }, 400);
     }
 
-    const gameFolder = dirname(selectedIndex.path);
+    const romFilename = safeRomName(rom.name);
 
-    // MONTA OS ARQUIVOS DA PASTA DO JOGO.
-    const gameFiles = extractedFiles
-      .map(file => {
-        const relative = relativeTo(file.path, gameFolder);
-
-        if (relative === null || !relative) return null;
-
-        return {
-          name: relative.split("/").pop(),
-          path: relative,
-          content: file.content
-        };
-      })
-      .filter(Boolean);
-
-    const indexFile = gameFiles.find(file =>
-      file.path.toLowerCase() === "index.html"
-    );
-
-    if (!indexFile) {
+    if (!romFilename || !isRom(romFilename)) {
       return json({
-        error: "Não encontrei o index.html na pasta do jogo."
+        error: "Envie uma ROM válida, sem ZIP. Formatos aceitos: SFC, SMC, NES, GBA, GBC, GB, MD, GEN, BIN e ISO."
       }, 400);
     }
 
-    // COLOCA UMA CÓPIA DA ROM JUNTO DA INDEX.HTML.
-    // PRESERVA O ZIP ORIGINAL E OS ARQUIVOS EXTRAÍDOS.
-    const romTargetPath = getUniqueRomName(
-      gameFiles,
-      selectedRom.name,
-      selectedRom.content
-    );
+    const core = getCore(consoleName);
 
-    const existingRom = gameFiles.find(file =>
-      file.path.toLowerCase() === romTargetPath.toLowerCase()
-    );
-
-    if (!existingRom) {
-      gameFiles.push({
-        name: romTargetPath,
-        path: romTargetPath,
-        content: selectedRom.content
-      });
-    }
-
-    // A ROM ESTÁ AGORA NA MESMA PASTA DA INDEX.HTML.
-    const romRelativePath = romTargetPath;
-
-    // CORRIGE AUTOMATICAMENTE O ENDEREÇO DA ROM.
-    const indexHtml = new TextDecoder().decode(indexFile.content);
-
-    const gameUrlPattern =
-      /(\bEJS_gameUrl\s*=\s*)(["'])(.*?)\2(\s*;?)/i;
-
-    if (!gameUrlPattern.test(indexHtml)) {
+    if (!core) {
       return json({
-        error: "Não encontrei EJS_gameUrl no index.html do emulador."
+        error: "Console não suportado pelo gerador automático."
       }, 400);
     }
 
-    const correctedHtml = indexHtml.replace(
-      gameUrlPattern,
-      (match, prefix, quote, oldValue, suffix) =>
-        `${prefix}${JSON.stringify(romRelativePath)}${suffix}`
-    );
+    const allowedExtensions = getExtensions(consoleName);
+    const extension = "." + romFilename.split(".").pop().toLowerCase();
 
-    indexFile.content = new TextEncoder().encode(correctedHtml);
-
-    const hasRom = gameFiles.some(file =>
-      isRom(file.name)
-    );
-
-    if (!hasRom) {
+    if (!allowedExtensions.includes(extension)) {
       return json({
-        error: "A ROM não foi encontrada nos arquivos do jogo."
+        error: `O arquivo ${extension} não corresponde ao console ${consoleName}.`
       }, 400);
     }
 
-    // VERIFICA DUPLICAÇÕES E CONFLITOS DE CAMINHOS.
-    validateGitPaths(gameFiles);
+    const romContent = new Uint8Array(
+      await rom.arrayBuffer()
+    );
+
+    if (!romContent.length) {
+      return json({
+        error: "O arquivo da ROM está vazio."
+      }, 400);
+    }
 
     const token = env.GITHUB_TOKEN;
     const apiBase = `/repos/${OWNER}/${REPO}`;
@@ -823,7 +557,6 @@ export async function onRequestPost({ request, env }) {
       }
     }
 
-    // LOCALIZA O JOGO ANTERIOR PARA PRESERVAR A CAPA.
     const previousGame = games.find(game => {
       const sameSlug = slugify(game.slug || game.name) === slug;
       const sameConsole =
@@ -832,9 +565,9 @@ export async function onRequestPost({ request, env }) {
       return sameSlug && sameConsole;
     });
 
+    // CAPA DO JOGO.
     let coverPath = "";
     let coverUrl = "";
-    let coverExtension = null;
     let coverContent = null;
 
     if (
@@ -843,14 +576,23 @@ export async function onRequestPost({ request, env }) {
       cover.size > 0
     ) {
       if (cover.size > 8 * 1024 * 1024) {
-        return json({ error: "A capa ultrapassa 8 MB." }, 400);
+        return json({
+          error: "A capa ultrapassa 8 MB."
+        }, 400);
       }
 
-      coverExtension =
-        cover.type === "image/png" ? ".png" :
-        cover.type === "image/webp" ? ".webp" :
-        cover.type === "image/jpeg" ? ".jpg" :
-        null;
+      let coverExtension = null;
+
+      if (cover.type === "image/png") {
+        coverExtension = ".png";
+      } else if (cover.type === "image/webp") {
+        coverExtension = ".webp";
+      } else if (
+        cover.type === "image/jpeg" ||
+        cover.type === "image/jpg"
+      ) {
+        coverExtension = ".jpg";
+      }
 
       if (!coverExtension) {
         return json({
@@ -869,12 +611,34 @@ export async function onRequestPost({ request, env }) {
 
     } else if (previousGame && previousGame.coverUrl) {
       coverUrl = previousGame.coverUrl;
+
     } else {
       coverPath = "img/capas/sem-capa.jpg";
 
       coverUrl =
         `https://${OWNER}.github.io/${REPO}/${coverPath}`;
     }
+
+    // GERA AUTOMATICAMENTE O INDEX.HTML DO EMULADOR.
+    const indexHtml = createEmulatorIndex({
+      name,
+      consoleName,
+      romFilename
+    });
+
+    const indexBytes = new TextEncoder().encode(indexHtml);
+
+    // GERA A PÁGINA DE APRESENTAÇÃO.
+    const pageHtml = createGamePage({
+      name,
+      consoleName,
+      onlineUrl,
+      coverUrl,
+      downloadUrl,
+      description
+    });
+
+    const pageBytes = new TextEncoder().encode(pageHtml);
 
     const newGame = {
       name,
@@ -887,9 +651,10 @@ export async function onRequestPost({ request, env }) {
       slug
     };
 
-    // ATUALIZA O JOGO SEM DUPLICAR.
+    // ATUALIZA SEM DUPLICAR O JOGO.
     games = games.filter(game => {
       const sameSlug = slugify(game.slug || game.name) === slug;
+
       const sameConsole =
         normalizeConsole(game.console) === consoleName;
 
@@ -902,40 +667,30 @@ export async function onRequestPost({ request, env }) {
       JSON.stringify(games, null, 2)
     );
 
-    const pageBytes = new TextEncoder().encode(
-      createGamePage({
-        name,
-        consoleName,
-        onlineUrl,
-        coverUrl,
-        downloadUrl,
-        description
-      })
-    );
-
+    // ARQUIVOS QUE SERÃO PUBLICADOS.
     const files = [
-      ...gameFiles.map(file => ({
-        githubPath: `${gameDirectory}/${file.path}`,
-        content: file.content
-      })),
-
+      {
+        githubPath: `${gameDirectory}/index.html`,
+        content: indexBytes
+      },
+      {
+        githubPath: `${gameDirectory}/${romFilename}`,
+        content: romContent
+      },
       ...(coverContent ? [{
         githubPath: coverPath,
         content: coverContent
       }] : []),
-
       {
         githubPath: pagePath,
         content: pageBytes
       },
-
       {
         githubPath: "games.json",
         content: catalogBytes
       }
     ];
 
-    // VERIFICA OS CAMINHOS FINAIS ANTES DE PUBLICAR.
     validateGitPaths(
       files.map(file => ({
         path: file.githubPath
@@ -1012,8 +767,10 @@ export async function onRequestPost({ request, env }) {
       coverUrl,
       description,
       folder: `${gameDirectory}/`,
+      indexGenerated: true,
+      rom: romFilename,
       catalogUrl: gamesUrl,
-      message: "Jogo publicado e adicionado ao catálogo!"
+      message: "Jogo publicado! ROM e index.html criados automaticamente."
     });
 
   } catch (error) {
