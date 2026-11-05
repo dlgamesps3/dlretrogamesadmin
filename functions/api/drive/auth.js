@@ -1,10 +1,14 @@
+
 import { requireAdmin, json } from "../../_lib/security.js";
 
 const enc = new TextEncoder();
 
 function b64url(bytes) {
   let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
+  for (const b of new Uint8Array(bytes)) {
+    binary += String.fromCharCode(b);
+  }
+
   return btoa(binary)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -20,9 +24,13 @@ async function sign(value, secret) {
     ["sign"]
   );
 
-  return b64url(
-    await crypto.subtle.sign("HMAC", key, enc.encode(value))
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    enc.encode(value)
   );
+
+  return b64url(signature);
 }
 
 export async function onRequestGet({ request, env }) {
@@ -67,6 +75,8 @@ export async function onRequestGet({ request, env }) {
     );
 
   } catch (error) {
-    return json({ error: error.message || "Erro ao iniciar autorização." }, 500);
+    return json({
+      error: error.message || "Erro ao iniciar autorização."
+    }, 500);
   }
 }
