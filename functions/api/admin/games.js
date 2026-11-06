@@ -1,4 +1,15 @@
 async function generateDescription(name, consoleName) {
+  function limitDescription(text) {
+    text = String(text || "").replace(/\s+/g, " ").trim();
+
+    if (text.length <= 150) return text;
+
+    let shortened = text.slice(0, 147);
+    shortened = shortened.replace(/\s+\S*$/, "");
+
+    return shortened + "...";
+  }
+
   for (const language of ["pt", "en"]) {
     try {
       const searchUrl = new URL(
@@ -57,11 +68,12 @@ async function generateDescription(name, consoleName) {
       if (!pageResponse.ok) continue;
 
       const pageData = await pageResponse.json();
+
       const page = Object.values(
         pageData?.query?.pages || {}
       )[0];
 
-      let extract = String(page?.extract || "")
+      const extract = String(page?.extract || "")
         .replace(/\s+/g, " ")
         .trim();
 
@@ -79,7 +91,7 @@ async function generateDescription(name, consoleName) {
       summary = summary.trim();
 
       if (summary.length >= 40) {
-        return summary;
+        return limitDescription(summary);
       }
 
     } catch (error) {
@@ -87,5 +99,7 @@ async function generateDescription(name, consoleName) {
     }
   }
 
-  return `${name} é um jogo de ${consoleName}. Reviva esse clássico dos videogames e aproveite essa experiência retrô no DL RETRO GAMES.`;
+  return limitDescription(
+    `${name} é um jogo de ${consoleName}. Reviva esse clássico dos videogames no DL RETRO GAMES.`
+  );
 }
