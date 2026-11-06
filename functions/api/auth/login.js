@@ -1,4 +1,9 @@
-import { verifyPassword, json } from "../../_lib/security.js";
+
+import {
+  verifyPassword,
+  createCustomerToken,
+  json
+} from "../../_lib/security.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "https://dlgamesps3.github.io",
@@ -19,13 +24,17 @@ export async function onRequestPost({ request, env }) {
     const { username, password } = await request.json();
 
     const user = await env.DB.prepare(
-      "SELECT username,password_hash,plan,expires_at,blocked FROM users WHERE username=?"
+      `SELECT username,password_hash,plan,expires_at,blocked
+       FROM users WHERE username=?`
     ).bind(String(username || "")).first();
 
     if (
       !user ||
       user.blocked ||
-      !(await verifyPassword(String(password || ""), user.password_hash))
+      !(await verifyPassword(
+        String(password || ""),
+        user.password_hash
+      ))
     ) {
       return json(
         { error: "Usuário ou senha inválidos." },
@@ -45,10 +54,16 @@ export async function onRequestPost({ request, env }) {
       );
     }
 
+    const token = await createCustomerToken(
+      env,
+      user.username
+    );
+
     return json({
       ok: true,
       plan: user.plan,
-      expires_at: user.expires_at
+      expires_at: user.expires_at,
+      token
     }, 200, CORS_HEADERS);
 
   } catch (error) {
