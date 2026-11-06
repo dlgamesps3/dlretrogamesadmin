@@ -113,33 +113,91 @@
       <!-- CRIAR USUÁRIO -->
       <section data-view="create" class="panel-view hidden">
         <div class="panel-card">
-          <h2>Criar usuário</h2>
+
+          <h2>➕ Criar usuário</h2>
 
           <form id="create-form">
+
+            <label>
+              Nome da pessoa
+              <input
+                type="text"
+                name="name"
+                id="user-name"
+                placeholder="Ex: João, Pedro, Cliente 01"
+                maxlength="60"
+                required
+              >
+            </label>
+
+            <label>
+              Forma de criação
+              <select name="mode" id="user-mode">
+                <option value="automatic">Gerar automaticamente</option>
+                <option value="manual">Criar manualmente</option>
+              </select>
+            </label>
+
+            <!-- CAMPOS MANUAIS -->
+            <div id="manual-fields" class="hidden">
+
+              <label>
+                Nome de usuário
+                <input
+                  type="text"
+                  name="username"
+                  id="new-username"
+                  placeholder="Digite o usuário"
+                  minlength="3"
+                  maxlength="30"
+                  autocomplete="off"
+                >
+              </label>
+
+              <label>
+                Senha
+                <input
+                  type="text"
+                  name="password"
+                  id="new-password"
+                  placeholder="Digite a senha"
+                  minlength="6"
+                  maxlength="100"
+                  autocomplete="new-password"
+                >
+              </label>
+
+            </div>
+
             <label>
               Plano
               <select name="plan" required>
                 <option value="free">Gratuito</option>
-                <option value="vip">VIP</option>
+                <option value="VIP">VIP</option>
               </select>
             </label>
 
             <label>
               Dias de acesso
-              <input name="days" type="number" min="1" value="30" required>
+              <input
+                name="days"
+                type="number"
+                min="1"
+                max="3650"
+                value="30"
+                required
+              >
             </label>
 
-            <label>
-              Observação
-              <input name="note" placeholder="Opcional">
-            </label>
-
-            <button class="primary" type="submit">
-              Criar usuário
+            <button class="primary" type="submit" id="create-button">
+              CRIAR USUÁRIO
             </button>
 
-            <p id="create-error" class="error"></p>
+            <p id="create-error" class="error" role="alert"></p>
+
+            <!-- RESULTADO -->
             <div id="generated"></div>
+
           </form>
         </div>
       </section>
@@ -213,7 +271,6 @@
               >
             </label>
 
-            <!-- PRÉVIA DA CAPA -->
             <div id="cover-preview" class="cover-preview hidden">
               <span>Prévia da capa</span>
               <img id="cover-image" alt="Prévia da capa selecionada">
