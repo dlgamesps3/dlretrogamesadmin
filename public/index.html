@@ -3,26 +3,25 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#020b18">
-  <title>DL RETRO GAMES | Administração</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DL RETRO GAMES - Administração</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
   <!-- LOGIN -->
-  <div id="login-screen" class="login-wrap">
+  <section id="login-screen" class="login-screen">
     <form id="login-form" class="login-card">
-      <div class="brand-mark">DL</div>
-      <p class="eyebrow">RETRO GAMES</p>
-      <h1>Painel administrativo</h1>
-      <p class="muted">Entre com sua conta de administrador.</p>
+      <h1>DL RETRO GAMES</h1>
+      <p>Painel administrativo</p>
 
-      <label>Usuário
+      <label>
+        Usuário
         <input name="username" autocomplete="username" required>
       </label>
 
-      <label>Senha
+      <label>
+        Senha
         <input name="password" type="password"
           autocomplete="current-password" required>
       </label>
@@ -30,68 +29,40 @@
       <button class="primary" type="submit">ENTRAR</button>
       <p id="login-error" class="error" role="alert"></p>
     </form>
-  </div>
+  </section>
 
   <!-- PAINEL -->
   <div id="app" class="admin-layout hidden">
 
     <aside class="sidebar">
-      <div class="sidebar-brand">
-        <div class="brand-mark">DL</div>
-        <div>
-          <strong>DL RETRO GAMES</strong>
-          <small>ADMINISTRAÇÃO</small>
-        </div>
+      <div class="brand">
+        <h2>DL RETRO</h2>
+        <span>GAMES ADMIN</span>
       </div>
 
-      <p class="menu-label">MENU PRINCIPAL</p>
-
-      <nav class="side-nav">
-        <button type="button" class="nav-item active"
-          data-panel="dashboard">
-          <span>▦</span> Dashboard
-        </button>
-
-        <button type="button" class="nav-item"
-          data-panel="users">
-          <span>♙</span> Usuários
-        </button>
-
-        <button type="button" class="nav-item"
-          data-panel="create">
-          <span>＋</span> Criar usuário
-        </button>
-
-        <button type="button" class="nav-item"
-          data-panel="games">
-          <span>🎮</span> Publicar jogo
-        </button>
+      <nav>
+        <button class="active" data-panel="dashboard">📊 Dashboard</button>
+        <button data-panel="users">👥 Usuários</button>
+        <button data-panel="create">➕ Criar usuário</button>
+        <button data-panel="games">🎮 Publicar jogo</button>
       </nav>
 
-      <div class="sidebar-bottom">
-        <button type="button" id="logout" class="logout-button">
-          ↪ Sair do painel
-        </button>
-      </div>
+      <button id="logout-button" class="logout-button">
+        Sair da conta
+      </button>
     </aside>
 
     <main class="main-content">
 
       <header class="topbar">
         <div>
-          <p class="eyebrow">ÁREA ADMINISTRATIVA</p>
-          <h1>Bem-vindo!</h1>
+          <h1 id="page-title">Dashboard</h1>
+          <p>Painel de gerenciamento DL RETRO GAMES</p>
         </div>
-        <span class="admin-badge">ADMIN</span>
       </header>
 
       <!-- DASHBOARD -->
-      <section class="page-section" data-view="dashboard">
-        <div class="section-heading">
-          <h2>Dashboard</h2>
-          <p>Resumo geral da plataforma.</p>
-        </div>
-
+      <section data-view="dashboard" class="panel-view">
         <div class="stats-grid">
           <article class="stat-card">
             <span>Total de usuários</span>
@@ -99,12 +70,12 @@
           </article>
 
           <article class="stat-card">
-            <span>Usuários VIP</span>
+            <span>VIP</span>
             <strong id="vip">0</strong>
           </article>
 
           <article class="stat-card">
-            <span>Usuários gratuitos</span>
+            <span>Gratuitos</span>
             <strong id="free">0</strong>
           </article>
 
@@ -113,21 +84,13 @@
             <strong id="expired">0</strong>
           </article>
         </div>
-
-        <div class="content-card">
-          <h3>Bem-vindo ao painel DL RETRO GAMES</h3>
-          <p>Use o menu lateral para administrar usuários e publicar jogos.</p>
-        </div>
       </section>
 
       <!-- USUÁRIOS -->
-      <section class="page-section hidden" data-view="users">
-        <div class="section-heading">
-          <h2>Usuários</h2>
-          <p>Consulte e gerencie as contas cadastradas.</p>
-        </div>
+      <section data-view="users" class="panel-view hidden">
+        <div class="panel-card">
+          <h2>Gerenciar usuários</h2>
 
-        <div class="content-card">
           <input id="search" type="search"
             placeholder="Pesquisar usuário...">
 
@@ -137,90 +100,135 @@
                 <tr>
                   <th>Usuário</th>
                   <th>Plano</th>
-                  <th>Status</th>
                   <th>Validade</th>
                   <th>Ações</th>
                 </tr>
               </thead>
-              <tbody id="users-body">
-                <tr>
-                  <td colspan="5">Carregando usuários...</td>
-                </tr>
-              </tbody>
+              <tbody id="users-body"></tbody>
             </table>
           </div>
         </div>
       </section>
 
       <!-- CRIAR USUÁRIO -->
-      <section class="page-section hidden" data-view="create">
-        <div class="section-heading">
+      <section data-view="create" class="panel-view hidden">
+        <div class="panel-card">
           <h2>Criar usuário</h2>
-          <p>Gere uma nova conta de acesso.</p>
-        </div>
 
-        <div class="content-card form-card">
           <form id="create-form">
-            <label>Tipo de conta
+            <label>
+              Plano
               <select name="plan" required>
                 <option value="free">Gratuito</option>
                 <option value="vip">VIP</option>
               </select>
             </label>
 
-            <label>Duração em dias
-              <input type="number" name="days"
-                value="30" min="1" required>
+            <label>
+              Dias de acesso
+              <input name="days" type="number" min="1" value="30" required>
             </label>
 
-            <label>Observação
-              <input type="text" name="note"
-                placeholder="Opcional">
+            <label>
+              Observação
+              <input name="note" placeholder="Opcional">
             </label>
 
             <button class="primary" type="submit">
-              CRIAR USUÁRIO
+              Criar usuário
             </button>
 
             <p id="create-error" class="error"></p>
-            <pre id="generated" class="generated"></pre>
+            <div id="generated"></div>
           </form>
         </div>
       </section>
 
       <!-- PUBLICAR JOGO -->
-      <section class="page-section hidden" data-view="games">
-        <div class="section-heading">
-          <h2>Publicar jogo</h2>
-          <p>Adicione um novo jogo ao catálogo.</p>
-        </div>
-
-        <div class="content-card">
+      <section data-view="games" class="panel-view hidden">
+        <div class="panel-card">
+          <h2>🎮 Publicar novo jogo</h2>
           <p class="muted">
-            Mantenha aqui os campos de publicação que já eram usados
-            pelo seu formulário antigo. Os nomes dos campos precisam
-            corresponder aos esperados por functions/api/admin/games.js.
+            O sistema identificará o console e enviará o jogo
+            para a pasta correspondente.
           </p>
 
-          <form id="game-form" class="form-card">
-            <label>Nome do jogo
-              <input name="name" required>
+          <form id="game-form" enctype="multipart/form-data">
+
+            <label>
+              Nome do jogo
+              <input
+                type="text"
+                name="name"
+                id="game-name"
+                placeholder="Ex: Aero Fighters PT-BR"
+                required
+              >
             </label>
 
-            <label>Console
-              <input name="console" required>
+            <label>
+              Console
+              <select name="console" id="game-console" required>
+                <option value="">Selecione o console</option>
+                <option value="SNES">Super Nintendo (SNES)</option>
+                <option value="NES">Nintendo (NES)</option>
+                <option value="GBA">Game Boy Advance</option>
+                <option value="GBC">Game Boy Color</option>
+                <option value="GB">Game Boy</option>
+                <option value="Mega-Drive">Mega Drive</option>
+                <option value="PS1">PlayStation 1</option>
+              </select>
             </label>
 
-            <label>Arquivo do jogo
-              <input type="file" name="rom" required>
+            <label>
+              Descrição do jogo
+              <textarea
+                name="description"
+                id="game-description"
+                maxlength="150"
+                rows="3"
+                placeholder="Descrição automática ou personalizada..."
+              ></textarea>
+              <small>Máximo de 150 caracteres.</small>
             </label>
 
-            <button class="primary" type="submit">
+            <label>
+              Arquivo ROM
+              <input
+                type="file"
+                name="rom"
+                id="game-rom"
+                required
+              >
+            </label>
+
+            <label>
+              Capa do jogo
+              <input
+                type="file"
+                name="cover"
+                id="game-cover"
+                accept="image/*"
+                required
+              >
+            </label>
+
+            <!-- PRÉVIA DA CAPA -->
+            <div id="cover-preview" class="cover-preview hidden">
+              <span>Prévia da capa</span>
+              <img id="cover-image" alt="Prévia da capa selecionada">
+              <button type="button" id="remove-cover">
+                Remover capa
+              </button>
+            </div>
+
+            <button class="primary" type="submit" id="publish-button">
               PUBLICAR JOGO
             </button>
 
-            <p id="game-error" class="error"></p>
+            <p id="game-error" class="error" role="alert"></p>
             <div id="game-result"></div>
+
           </form>
         </div>
       </section>
