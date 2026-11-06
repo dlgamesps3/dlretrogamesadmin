@@ -7,31 +7,19 @@ const loginError = $("#login-error");
 const app = $("#app");
 
 let users = [];
-
-/* UTILITÁRIOS */
-
-function escapeHTML(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[char]);
-}
+let coverPreviewUrl = null;
+let descriptionManuallyEdited = false;
 
 async function api(path, options = {}) {
   const isFormData = options.body instanceof FormData;
 
   const response = await fetch(path, {
     ...options,
-    credentials: "same-origin",
     headers: {
-      ...(isFormData ? {} : options.body ? {
-        "Content-Type": "application/json"
-      } : {}),
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(options.headers || {})
-    }
+    },
+    credentials: "same-origin"
   });
 
   const data = await response.json().catch(() => ({}));
@@ -43,444 +31,560 @@ async function api(path, options = {}) {
   return data;
 }
 
-/* NAVEGAÇÃO */
+/* =========================
+   LOGIN
+========================= */
+
+function showApp() {
+  loginScreen.classList.add("hidden");
+  app.classList.remove("hidden");
+}
+
+function showLogin() {
+  app.classList.add("hidden");
+  loginScreen.classList.remove("hidden");
+}
+
+loginForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  loginError.textContent = "";
+
+  const form = new FormData(loginForm);
+
+  try {
+    await api("/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: form.get("username"),
+        password: form.get("password")
+      })
+    });
+
+    loginForm.reset();
+    showApp();
+    await loadDashboard();
+
+  } catch (error) {
+    loginError.textContent = error.message;
+  }
+});
+
+$("#logout-button")?.addEventListener("click", async () => {
+  try {
+    await api("/api/admin/logout", { method: "POST" });
+  } catch (error) {
+    console.error(error);
+  }
+
+  showLogin();
+});
+
+/* =========================
+   VERIFICAR SESSÃO
+========================= */
+
+async function checkSession() {
+  try {
+    await api("/api/admin/me");
+    showApp();
+    await loadDashboard();
+  } catch {
+    showLogin();
+  }
+}
+
+/* =========================
+   MENU LATERAL
+========================= */
+
+const panelTitles = {
+  dashboard: "Dashboard",
+  users: "Usuários",
+  create: "Criar usuário",
+  games: "Publicar jogo"
+};
 
 function openPanel(target) {
-  const sections = document.querySelectorAll("[data-view]");
-  const buttons = document.querySelectorAll("[data-panel]");
-
-  sections.forEach((section) => {
+  document.querySelectorAll("[data-view]").forEach(section => {
     section.classList.toggle(
       "hidden",
       section.dataset.view !== target
     );
   });
 
-  buttons.forEach((button) => {
+  document.querySelectorAll("[data-panel]").forEach(button => {
     button.classList.toggle(
       "active",
       button.dataset.panel === target
     );
   });
 
-  const titles = {
-    dashboard: "Dashboard",
-    users: "Usuários",
-    create: "Criar usuário",
-    games: "Publicar jogo"
-  };
+  const title = $("#page-title");
+  if (title) title.textContent = panelTitles[target] || "Administração";
 
-  const heading = $(".topbar h1");
-
-  if (heading) {
-    heading.textContent = titles[target] || "Painel administrativo";
-  }
+  if (target === "dashboard") loadDashboard();
+  if (target === "users") loadUsers();
 }
 
-document.querySelectorAll("[data-panel]").forEach((button) => {
+document.querySelectorAll("[data-panel]").forEach(button => {
   button.addEventListener("click", () => {
     openPanel(button.dataset.panel);
   });
 });
 
-/* LOGIN */
+/* =========================
+   DASHBOARD
+========================= */
 
-function showLogin(message = "") {
-  loginScreen?.classList.remove("hidden");
-  app?.classList.add("hidden");
-
-  if (loginError) {
-    loginError.textContent = message;
-  }
-}
-
-function showApp() {
-  loginScreen?.classList.add("hidden");
-  app?.classList.remove("hidden");
-
-  if (loginError) {
-    loginError.textContent = "";
-  }
-
-  openPanel("dashboard");
-}
-
-async function checkSession() {
+async function loadDashboard() {
   try {
-    await api("/api/admin/me");
-    showApp();
-    await loadUsers();
-  } catch {
-    showLogin();
-  }
-}
+    const data = await api("/api/admin/users");
 
-loginForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
+    users = Array.isArray(data) ? data : (data.users || []);
 
-  const button = loginForm.querySelector('button[type="submit"]');
-  const form = new FormData(loginForm);
+    const total = users.length;
+    const vip = users.filter(u =>
+      String(u.plan || "").toLowerCase() === "vip"
+    ).length;
 
-  const username = String(form.get("username") || "").trim();
-  const password = String(form.get("password") || "");
+    const free = users.filter(u =>
+      String(u.plan || "").toLowerCase() === "free"
+    ).length;
 
-  if (button) button.disabled = true;
-  if (loginError) loginError.textContent = "";
+    const expired = users.filter(u => {
+      const date = u.expiresAt || u.expires_at || u.expiration;
+      return date && new Date(date).getTime() < Date.now();
+    }).length;
 
-  try {
-    await api("/api/admin/login", {
-      method: "POST",
-      body: JSON.stringify({ username, password })
-    });
+    $("#total").textContent = total;
+    $("#vip").textContent = vip;
+    $("#free").textContent = free;
+    $("#expired").textContent = expired;
 
-    await api("/api/admin/me");
-
-    loginForm.reset();
-    showApp();
-    await loadUsers();
   } catch (error) {
-    showLogin(error.message);
-  } finally {
-    if (button) button.disabled = false;
+    console.error("Erro no dashboard:", error);
   }
-});
+}
 
-/* SAIR */
-
-$("#logout")?.addEventListener("click", async () => {
-  try {
-    await api("/api/admin/logout", {
-      method: "POST"
-    });
-  } catch (error) {
-    console.error(error);
-  }
-
-  users = [];
-  showLogin();
-});
-
-/* CARREGAR USUÁRIOS */
+/* =========================
+   USUÁRIOS
+========================= */
 
 async function loadUsers() {
   const tbody = $("#users-body");
+  tbody.innerHTML = "<tr><td colspan='4'>Carregando...</td></tr>";
 
   try {
     const data = await api("/api/admin/users");
 
-    users = Array.isArray(data)
-      ? data
-      : Array.isArray(data.users)
-        ? data.users
-        : [];
+    users = Array.isArray(data) ? data : (data.users || []);
 
-    renderUsers();
-    updateStats();
+    renderUsers(users);
+
   } catch (error) {
-    if (tbody) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="5">${escapeHTML(error.message)}</td>
-        </tr>
-      `;
-    }
+    tbody.innerHTML = "";
+
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+
+    cell.colSpan = 4;
+    cell.textContent = error.message;
+
+    row.appendChild(cell);
+    tbody.appendChild(row);
   }
 }
 
-/* DADOS DOS USUÁRIOS */
-
-function getUserId(user) {
-  return user.id ?? user.userId ?? user.username ?? user.email;
-}
-
-function getUserPlan(user) {
-  return String(user.plan ?? user.type ?? "free").toLowerCase();
-}
-
-function isExpired(user) {
-  const expiration =
-    user.expiresAt ??
-    user.expires_at ??
-    user.expiration;
-
-  if (!expiration) return false;
-
-  const date = new Date(expiration);
-
-  return !Number.isNaN(date.getTime()) && date < new Date();
-}
-
-function isActive(user) {
-  return user.active !== false &&
-    user.disabled !== true &&
-    user.status !== "inactive" &&
-    !isExpired(user);
-}
-
-/* LISTA DE USUÁRIOS */
-
-function renderUsers() {
+function renderUsers(list) {
   const tbody = $("#users-body");
+  tbody.innerHTML = "";
 
-  if (!tbody) return;
-
-  const search = ($("#search")?.value || "").toLowerCase();
-
-  const filtered = users.filter((user) => {
-    const text = [
-      user.username,
-      user.name,
-      user.email,
-      user.plan,
-      user.note
-    ].join(" ").toLowerCase();
-
-    return text.includes(search);
-  });
-
-  if (!filtered.length) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="5">Nenhum usuário encontrado.</td>
-      </tr>
-    `;
+  if (!list.length) {
+    tbody.innerHTML = "<tr><td colspan='4'>Nenhum usuário encontrado.</td></tr>";
     return;
   }
 
-  tbody.innerHTML = filtered.map((user) => {
-    const id = getUserId(user);
-    const plan = getUserPlan(user);
-    const active = isActive(user);
+  list.forEach(user => {
+    const id = user.id;
+    const username = user.username || user.user || "Sem nome";
+    const plan = user.plan || "free";
+    const expiration = user.expiresAt ||
+      user.expires_at ||
+      user.expiration ||
+      "Não informado";
 
-    const name =
-      user.username ??
-      user.name ??
-      user.email ??
-      id;
+    const row = document.createElement("tr");
 
-    const expiration =
-      user.expiresAt ??
-      user.expires_at ??
-      user.expiration ??
-      "—";
+    const nameCell = document.createElement("td");
+    nameCell.textContent = username;
 
-    return `
-      <tr>
-        <td>${escapeHTML(name)}</td>
-        <td>${escapeHTML(plan.toUpperCase())}</td>
-        <td>${active ? "Ativo" : "Inativo/Expirado"}</td>
-        <td>${escapeHTML(expiration)}</td>
-        <td>
-          <button type="button"
-            data-user-action="toggle"
-            data-id="${escapeHTML(id)}">
-            ${active ? "Desativar" : "Ativar"}
-          </button>
+    const planCell = document.createElement("td");
+    planCell.textContent = String(plan).toUpperCase();
 
-          <button type="button"
-            data-user-action="renew"
-            data-id="${escapeHTML(id)}">
-            Renovar
-          </button>
+    const dateCell = document.createElement("td");
+    dateCell.textContent = expiration;
 
-          <button type="button"
-            data-user-action="delete"
-            data-id="${escapeHTML(id)}">
-            Excluir
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join("");
+    const actionsCell = document.createElement("td");
+
+    const toggleButton = document.createElement("button");
+    toggleButton.textContent = "Alternar";
+    toggleButton.type = "button";
+
+    toggleButton.addEventListener("click", async () => {
+      await updateUser(id, { action: "toggle" });
+    });
+
+    const renewButton = document.createElement("button");
+    renewButton.textContent = "Renovar";
+    renewButton.type = "button";
+
+    renewButton.addEventListener("click", async () => {
+      await updateUser(id, { action: "renew", days: 30 });
+    });
+
+    const deleteButton = document.createElement("button");
+    deleteButton.textContent = "Excluir";
+    deleteButton.type = "button";
+
+    deleteButton.addEventListener("click", async () => {
+      if (!confirm(`Excluir o usuário ${username}?`)) return;
+
+      try {
+        await api(`/api/admin/users/${encodeURIComponent(id)}`, {
+          method: "DELETE"
+        });
+
+        await loadUsers();
+        await loadDashboard();
+
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+
+    actionsCell.append(toggleButton, renewButton, deleteButton);
+    row.append(nameCell, planCell, dateCell, actionsCell);
+    tbody.appendChild(row);
+  });
 }
 
-/* ESTATÍSTICAS */
-
-function updateStats() {
-  const total = users.length;
-
-  const vip = users.filter(
-    user => getUserPlan(user) === "vip"
-  ).length;
-
-  const free = users.filter(
-    user => getUserPlan(user) !== "vip"
-  ).length;
-
-  const expired = users.filter(isExpired).length;
-
-  if ($("#total")) $("#total").textContent = total;
-  if ($("#vip")) $("#vip").textContent = vip;
-  if ($("#free")) $("#free").textContent = free;
-  if ($("#expired")) $("#expired").textContent = expired;
-}
-
-/* PESQUISA */
-
-$("#search")?.addEventListener("input", renderUsers);
-
-/* CRIAR USUÁRIO */
-
-$("#create-form")?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const form = event.currentTarget;
-  const button = form.querySelector('button[type="submit"]');
-
-  const errorBox = $("#create-error");
-  const generated = $("#generated");
-
-  if (errorBox) errorBox.textContent = "";
-  if (generated) generated.textContent = "";
-
-  if (button) button.disabled = true;
-
-  const formData = new FormData(form);
-
-  const body = {
-    plan: formData.get("plan") || "free",
-    days: Number(formData.get("days") || 30),
-    note: String(formData.get("note") || "")
-  };
-
+async function updateUser(id, body) {
   try {
-    const result = await api("/api/admin/users", {
-      method: "POST",
+    await api(`/api/admin/users/${encodeURIComponent(id)}`, {
+      method: "PATCH",
       body: JSON.stringify(body)
     });
 
-    if (generated) {
-      generated.textContent = JSON.stringify(result, null, 2);
-    }
-
-    form.reset();
     await loadUsers();
-
-  } catch (error) {
-    if (errorBox) {
-      errorBox.textContent = error.message;
-    }
-  } finally {
-    if (button) button.disabled = false;
-  }
-});
-
-/* AÇÕES DOS USUÁRIOS */
-
-$("#users-body")?.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-user-action]");
-
-  if (!button) return;
-
-  const id = button.dataset.id;
-  const action = button.dataset.userAction;
-
-  if (!id) return;
-
-  try {
-    if (action === "delete") {
-      if (!confirm("Tem certeza que deseja excluir este usuário?")) {
-        return;
-      }
-
-      await api(
-        `/api/admin/users/${encodeURIComponent(id)}`,
-        { method: "DELETE" }
-      );
-    }
-
-    if (action === "toggle") {
-      await api(
-        `/api/admin/users/${encodeURIComponent(id)}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ action: "toggle" })
-        }
-      );
-    }
-
-    if (action === "renew") {
-      await api(
-        `/api/admin/users/${encodeURIComponent(id)}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            action: "renew",
-            days: 30
-          })
-        }
-      );
-    }
-
-    await loadUsers();
+    await loadDashboard();
 
   } catch (error) {
     alert(error.message);
   }
+}
+
+$("#search")?.addEventListener("input", event => {
+  const query = event.target.value.toLowerCase();
+
+  const filtered = users.filter(user =>
+    String(user.username || user.user || "")
+      .toLowerCase()
+      .includes(query)
+  );
+
+  renderUsers(filtered);
 });
 
-/* PUBLICAR JOGO */
+/* =========================
+   CRIAR USUÁRIO
+========================= */
 
-$("#game-form")?.addEventListener("submit", async (event) => {
+$("#create-form")?.addEventListener("submit", async event => {
   event.preventDefault();
 
   const form = event.currentTarget;
-  const button = form.querySelector('button[type="submit"]');
+  const errorBox = $("#create-error");
+  const generated = $("#generated");
 
-  const errorBox = $("#game-error");
-  const resultBox = $("#game-result");
+  errorBox.textContent = "";
+  generated.textContent = "";
 
-  if (errorBox) errorBox.textContent = "";
-  if (resultBox) resultBox.textContent = "";
-
-  if (button) button.disabled = true;
+  const formData = new FormData(form);
 
   try {
-    const formData = new FormData(form);
+    const result = await api("/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({
+        plan: formData.get("plan"),
+        days: Number(formData.get("days")),
+        note: formData.get("note")
+      })
+    });
 
+    generated.textContent = result.username
+      ? `Usuário criado: ${result.username}`
+      : "Usuário criado com sucesso!";
+
+    form.reset();
+
+    await loadDashboard();
+
+  } catch (error) {
+    errorBox.textContent = error.message;
+  }
+});
+
+/* =========================
+   DESCRIÇÃO AUTOMÁTICA
+========================= */
+
+function slugify(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+async function generateDescription(name, consoleName) {
+  for (const language of ["pt", "en"]) {
+    try {
+      const searchUrl = new URL(
+        `https://${language}.wikipedia.org/w/api.php`
+      );
+
+      searchUrl.search = new URLSearchParams({
+        action: "query",
+        list: "search",
+        srsearch: `${name} video game`,
+        format: "json",
+        origin: "*",
+        srlimit: "5"
+      }).toString();
+
+      const response = await fetch(searchUrl, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      const results = data?.query?.search || [];
+
+      if (!results.length) continue;
+
+      const normalizedName = slugify(name);
+
+      const result = results.find(item => {
+        const title = slugify(item.title);
+        return title.includes(normalizedName) ||
+          normalizedName.includes(title);
+      }) || results[0];
+
+      const pageUrl = new URL(
+        `https://${language}.wikipedia.org/w/api.php`
+      );
+
+      pageUrl.search = new URLSearchParams({
+        action: "query",
+        prop: "extracts",
+        exintro: "1",
+        explaintext: "1",
+        exchars: "700",
+        pageids: String(result.pageid),
+        format: "json",
+        origin: "*"
+      }).toString();
+
+      const pageResponse = await fetch(pageUrl, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (!pageResponse.ok) continue;
+
+      const pageData = await pageResponse.json();
+
+      const page = Object.values(
+        pageData?.query?.pages || {}
+      )[0];
+
+      const extract = String(page?.extract || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (extract.length < 40) continue;
+
+      const sentences = extract.match(/[^.!?]+[.!?]+/g) || [extract];
+
+      let summary = "";
+
+      for (const sentence of sentences) {
+        const clean = sentence.trim();
+
+        if ((summary + " " + clean).trim().length > 150) break;
+
+        summary = (summary + " " + clean).trim();
+      }
+
+      if (summary.length >= 40) return summary;
+
+    } catch {
+      continue;
+    }
+  }
+
+  return `${name}: um clássico de ${consoleName} para jogar no DL RETRO GAMES.`.slice(0, 150);
+}
+
+const gameNameInput = $("#game-name");
+const gameConsoleInput = $("#game-console");
+const descriptionInput = $("#game-description");
+
+let descriptionRequest = 0;
+
+async function updateAutomaticDescription() {
+  const name = gameNameInput?.value.trim();
+  const consoleName = gameConsoleInput?.value;
+
+  if (!name || !consoleName || descriptionManuallyEdited) return;
+
+  const requestId = ++descriptionRequest;
+
+  descriptionInput.placeholder = "Gerando descrição...";
+
+  const description = await generateDescription(name, consoleName);
+
+  if (requestId !== descriptionRequest) return;
+
+  if (!descriptionManuallyEdited) {
+    descriptionInput.value = description;
+  }
+
+  descriptionInput.placeholder = "Descrição automática ou personalizada...";
+}
+
+gameNameInput?.addEventListener("blur", updateAutomaticDescription);
+gameConsoleInput?.addEventListener("change", updateAutomaticDescription);
+
+descriptionInput?.addEventListener("input", () => {
+  descriptionManuallyEdited = true;
+});
+
+/* =========================
+   PRÉVIA DA CAPA
+========================= */
+
+const coverInput = $("#game-cover");
+const coverImage = $("#cover-image");
+const coverPreview = $("#cover-preview");
+const removeCoverButton = $("#remove-cover");
+
+function clearCoverPreview() {
+  if (coverPreviewUrl) {
+    URL.revokeObjectURL(coverPreviewUrl);
+    coverPreviewUrl = null;
+  }
+
+  coverImage.removeAttribute("src");
+  coverPreview.classList.add("hidden");
+}
+
+coverInput?.addEventListener("change", () => {
+  const file = coverInput.files?.[0];
+
+  clearCoverPreview();
+
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    alert("Selecione um arquivo de imagem válido.");
+    coverInput.value = "";
+    return;
+  }
+
+  coverPreviewUrl = URL.createObjectURL(file);
+  coverImage.src = coverPreviewUrl;
+  coverPreview.classList.remove("hidden");
+});
+
+removeCoverButton?.addEventListener("click", () => {
+  coverInput.value = "";
+  clearCoverPreview();
+});
+
+/* =========================
+   PUBLICAR JOGO
+========================= */
+
+$("#game-form")?.addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const errorBox = $("#game-error");
+  const resultBox = $("#game-result");
+  const button = $("#publish-button");
+
+  errorBox.textContent = "";
+  resultBox.textContent = "";
+
+  const formData = new FormData(form);
+
+  if (!formData.get("name") || !formData.get("console")) {
+    errorBox.textContent = "Preencha o nome e o console.";
+    return;
+  }
+
+  if (!formData.get("rom")?.size) {
+    errorBox.textContent = "Selecione o arquivo ROM.";
+    return;
+  }
+
+  if (!formData.get("cover")?.size) {
+    errorBox.textContent = "Selecione a capa do jogo.";
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "PUBLICANDO...";
+
+  try {
     const result = await api("/api/admin/games", {
       method: "POST",
       body: formData
     });
 
-    if (resultBox) {
-      resultBox.innerHTML = `
-        <h3>Jogo publicado com sucesso!</h3>
-        <p>${escapeHTML(result.name || "")}</p>
+    resultBox.textContent =
+      result.message || "Jogo publicado com sucesso!";
 
-        ${
-          result.pageUrl
-            ? `<p><a href="${escapeHTML(result.pageUrl)}" target="_blank" rel="noopener">Abrir página do jogo</a></p>`
-            : ""
-        }
-
-        ${
-          result.onlineUrl
-            ? `<p><a href="${escapeHTML(result.onlineUrl)}" target="_blank" rel="noopener">Jogar online</a></p>`
-            : ""
-        }
-
-        ${
-          result.downloadUrl
-            ? `<p><a href="${escapeHTML(result.downloadUrl)}" target="_blank" rel="noopener">Baixar jogo</a></p>`
-            : ""
-        }
-
-        <p>${escapeHTML(result.message || "")}</p>
-      `;
+    if (result.pageUrl) {
+      const link = document.createElement("a");
+      link.href = result.pageUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "Abrir página do jogo";
+      resultBox.appendChild(document.createElement("br"));
+      resultBox.appendChild(link);
     }
 
     form.reset();
+    clearCoverPreview();
+    descriptionManuallyEdited = false;
 
   } catch (error) {
-    if (errorBox) {
-      errorBox.textContent = error.message;
-    }
+    errorBox.textContent = `Falha ao publicar: ${error.message}`;
+
   } finally {
-    if (button) button.disabled = false;
+    button.disabled = false;
+    button.textContent = "PUBLICAR JOGO";
   }
 });
 
-/* INICIALIZAÇÃO */
+/* =========================
+   INICIAR
+========================= */
 
 checkSession();
