@@ -121,7 +121,10 @@ function openPanel(target) {
   });
 
   const title = $("#page-title");
-  if (title) title.textContent = panelTitles[target] || "Administração";
+
+  if (title) {
+    title.textContent = panelTitles[target] || "Administração";
+  }
 
   if (target === "dashboard") loadDashboard();
   if (target === "users") loadUsers();
@@ -137,6 +140,10 @@ document.querySelectorAll("[data-panel]").forEach(button => {
    DASHBOARD
 ========================= */
 
+function getPlan(user) {
+  return String(user.plan || "").toUpperCase();
+}
+
 async function loadDashboard() {
   try {
     const data = await api("/api/admin/users");
@@ -144,16 +151,20 @@ async function loadDashboard() {
     users = Array.isArray(data) ? data : (data.users || []);
 
     const total = users.length;
-    const vip = users.filter(u =>
-      String(u.plan || "").toLowerCase() === "vip"
+
+    const vip = users.filter(user =>
+      getPlan(user) === "VIP"
     ).length;
 
-    const free = users.filter(u =>
-      String(u.plan || "").toLowerCase() === "free"
+    const free = users.filter(user =>
+      getPlan(user) !== "VIP"
     ).length;
 
-    const expired = users.filter(u => {
-      const date = u.expiresAt || u.expires_at || u.expiration;
+    const expired = users.filter(user => {
+      const date = user.expiresAt ||
+        user.expires_at ||
+        user.expiration;
+
       return date && new Date(date).getTime() < Date.now();
     }).length;
 
@@ -171,8 +182,16 @@ async function loadDashboard() {
    USUÁRIOS
 ========================= */
 
+function getUserName(user) {
+  const note = String(user.note || "");
+  const match = note.match(/^Nome:\s*(.*)$/i);
+
+  return match ? match[1].trim() : "";
+}
+
 async function loadUsers() {
   const tbody = $("#users-body");
+
   tbody.innerHTML = "<tr><td colspan='4'>Carregando...</td></tr>";
 
   try {
@@ -198,29 +217,46 @@ async function loadUsers() {
 
 function renderUsers(list) {
   const tbody = $("#users-body");
+
   tbody.innerHTML = "";
 
   if (!list.length) {
-    tbody.innerHTML = "<tr><td colspan='4'>Nenhum usuário encontrado.</td></tr>";
+    tbody.innerHTML =
+      "<tr><td colspan='4'>Nenhum usuário encontrado.</td></tr>";
     return;
   }
 
   list.forEach(user => {
     const id = user.id;
-    const username = user.username || user.user || "Sem nome";
-    const plan = user.plan || "free";
-    const expiration = user.expiresAt ||
-      user.expires_at ||
+    const username = user.username || user.user || "Sem usuário";
+    const personName = getUserName(user);
+    const plan = getPlan(user) || "GRATIS";
+
+    const expiration = user.expires_at ||
+      user.expiresAt ||
       user.expiration ||
       "Não informado";
 
     const row = document.createElement("tr");
 
     const nameCell = document.createElement("td");
-    nameCell.textContent = username;
+
+    if (personName) {
+      const name = document.createElement("strong");
+      name.textContent = personName;
+
+      const usernameLine = document.createElement("small");
+      usernameLine.textContent = username;
+      usernameLine.style.display = "block";
+      usernameLine.style.opacity = "0.7";
+
+      nameCell.append(name, usernameLine);
+    } else {
+      nameCell.textContent = username;
+    }
 
     const planCell = document.createElement("td");
-    planCell.textContent = String(plan).toUpperCase();
+    planCell.textContent = plan;
 
     const dateCell = document.createElement("td");
     dateCell.textContent = expiration;
@@ -264,6 +300,7 @@ function renderUsers(list) {
     });
 
     actionsCell.append(toggleButton, renewButton, deleteButton);
+
     row.append(nameCell, planCell, dateCell, actionsCell);
     tbody.appendChild(row);
   });
@@ -287,11 +324,13 @@ async function updateUser(id, body) {
 $("#search")?.addEventListener("input", event => {
   const query = event.target.value.toLowerCase();
 
-  const filtered = users.filter(user =>
-    String(user.username || user.user || "")
-      .toLowerCase()
-      .includes(query)
-  );
+  const filtered = users.filter(user => {
+    const username = String(user.username || user.user || "");
+    const name = getUserName(user);
+
+    return username.toLowerCase().includes(query) ||
+      name.toLowerCase().includes(query);
+  });
 
   renderUsers(filtered);
 });
@@ -300,38 +339,150 @@ $("#search")?.addEventListener("input", event => {
    CRIAR USUÁRIO
 ========================= */
 
-$("#create-form")?.addEventListener("submit", async event => {
+const createForm = $("#create-form");
+const userMode = $("#user-mode");
+const manualFields = $("#manual-fields");
+const usernameInput = $("#new-username");
+const passwordInput = $("#new-password");
+const generatedBox = $("#generated");
+
+function updateCreationMode() {
+  const manual = userMode?.value === "manual";
+
+  manualFields?.classList.toggle("hidden", !manual);
+
+  if (usernameInput) usernameInput.required = manual;
+  if (passwordInput) passwordInput.required = manual;
+}
+
+userMode?.addEventListener("change", updateCreationMode);
+
+updateCreationMode();
+
+async function copyCredentials(username, password) {
+  const text = `Nome: ${$("#user-name").value.trim()}
+Usuário: ${username}
+Senha: ${password}`;
+
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const temporary = document.createElement("textarea");
+
+      temporary.value = text;
+      temporary.style.position = "fixed";
+      temporary.style.opacity = "0";
+
+      document.body.appendChild(temporary);
+      temporary.select();
+
+      const copied = document.execCommand("copy");
+
+      temporary.remove();
+
+      if (!copied) throw new Error("Não foi possível copiar.");
+    }
+
+    alert("Usuário e senha copiados!");
+
+  } catch (error) {
+    alert("Não foi possível copiar automaticamente. Copie os dados manualmente.");
+  }
+}
+
+function showCreatedUser(result) {
+  generatedBox.innerHTML = "";
+
+  const card = document.createElement("div");
+
+  card.style.marginTop = "18px";
+  card.style.padding = "16px";
+  card.style.border = "1px solid #00d9ff";
+  card.style.borderRadius = "10px";
+  card.style.background = "#07182b";
+
+  const title = document.createElement("h3");
+  title.textContent = "Usuário criado com sucesso!";
+
+  const name = document.createElement("p");
+  name.textContent = `Nome: ${result.name}`;
+
+  const username = document.createElement("p");
+  username.textContent = `Usuário: ${result.username}`;
+
+  const password = document.createElement("p");
+  password.textContent = `Senha: ${result.password}`;
+
+  const plan = document.createElement("p");
+  plan.textContent = `Plano: ${result.plan}`;
+
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "primary";
+  copyButton.textContent = "📋 COPIAR USUÁRIO E SENHA";
+
+  copyButton.addEventListener("click", () => {
+    copyCredentials(result.username, result.password);
+  });
+
+  card.append(title, name, username, password, plan, copyButton);
+
+  generatedBox.appendChild(card);
+}
+
+createForm?.addEventListener("submit", async event => {
   event.preventDefault();
 
   const form = event.currentTarget;
   const errorBox = $("#create-error");
-  const generated = $("#generated");
+  const button = $("#create-button");
 
   errorBox.textContent = "";
-  generated.textContent = "";
+  generatedBox.innerHTML = "";
 
   const formData = new FormData(form);
+
+  const body = {
+    name: String(formData.get("name") || "").trim(),
+    mode: formData.get("mode"),
+    plan: formData.get("plan"),
+    days: Number(formData.get("days"))
+  };
+
+  if (body.mode === "manual") {
+    body.username = String(formData.get("username") || "").trim();
+    body.password = String(formData.get("password") || "");
+  }
+
+  if (!body.name) {
+    errorBox.textContent = "Informe o nome da pessoa.";
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "CRIANDO...";
 
   try {
     const result = await api("/api/admin/users", {
       method: "POST",
-      body: JSON.stringify({
-        plan: formData.get("plan"),
-        days: Number(formData.get("days")),
-        note: formData.get("note")
-      })
+      body: JSON.stringify(body)
     });
 
-    generated.textContent = result.username
-      ? `Usuário criado: ${result.username}`
-      : "Usuário criado com sucesso!";
+    showCreatedUser(result);
 
     form.reset();
+    updateCreationMode();
 
     await loadDashboard();
+    await loadUsers();
 
   } catch (error) {
     errorBox.textContent = error.message;
+
+  } finally {
+    button.disabled = false;
+    button.textContent = "CRIAR USUÁRIO";
   }
 });
 
@@ -380,6 +531,7 @@ async function generateDescription(name, consoleName) {
 
       const result = results.find(item => {
         const title = slugify(item.title);
+
         return title.includes(normalizedName) ||
           normalizedName.includes(title);
       }) || results[0];
@@ -489,8 +641,8 @@ function clearCoverPreview() {
     coverPreviewUrl = null;
   }
 
-  coverImage.removeAttribute("src");
-  coverPreview.classList.add("hidden");
+  coverImage?.removeAttribute("src");
+  coverPreview?.classList.add("hidden");
 }
 
 coverInput?.addEventListener("change", () => {
@@ -507,6 +659,7 @@ coverInput?.addEventListener("change", () => {
   }
 
   coverPreviewUrl = URL.createObjectURL(file);
+
   coverImage.src = coverPreviewUrl;
   coverPreview.classList.remove("hidden");
 });
@@ -562,10 +715,12 @@ $("#game-form")?.addEventListener("submit", async event => {
 
     if (result.pageUrl) {
       const link = document.createElement("a");
+
       link.href = result.pageUrl;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
       link.textContent = "Abrir página do jogo";
+
       resultBox.appendChild(document.createElement("br"));
       resultBox.appendChild(link);
     }
