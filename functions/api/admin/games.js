@@ -38,21 +38,42 @@ function migrateUrl(url) {
   if (!url) return "";
 
   const oldPrefix = `https://${OWNER}.github.io/${REPO}`;
+  const value = String(url).trim();
 
-  if (String(url).startsWith(oldPrefix)) {
-    return SITE_URL + String(url).slice(oldPrefix.length);
+  if (value.startsWith(oldPrefix)) {
+    return SITE_URL + value.slice(oldPrefix.length);
   }
 
-  return url;
+  return value;
 }
 
 function migrateGame(game) {
-  return {
+  const migrated = {
     ...game,
     onlineUrl: migrateUrl(game.onlineUrl),
     pageUrl: migrateUrl(game.pageUrl),
     coverUrl: migrateUrl(game.coverUrl)
   };
+
+  const consoleName = normalizeConsole(migrated.console);
+  const slug = slugify(migrated.slug || migrated.name);
+
+  if (!migrated.onlineUrl) {
+    migrated.onlineUrl =
+      `${SITE_URL}/pages/jogos-online/${consoleName}/${slug}/`;
+  }
+
+  if (!migrated.pageUrl) {
+    migrated.pageUrl =
+      `${SITE_URL}/pages/jogos/${consoleName}/${slug}.html`;
+  }
+
+  if (!migrated.coverUrl) {
+    migrated.coverUrl =
+      `${SITE_URL}/img/capas/sem-capa.jpg`;
+  }
+
+  return migrated;
 }
 
 async function generateDescription(name, consoleName) {
@@ -347,7 +368,7 @@ function createGamePage({
 }) {
   const safeName = escapeHtml(name);
   const safeConsole = escapeHtml(consoleName);
-  const safeCover = escapeHtml(coverUrl);
+  const safeCover = escapeHtml(coverUrl || `${SITE_URL}/img/capas/sem-capa.jpg`);
   const safeDownload = escapeHtml(downloadUrl);
 
   const finalDescription = limitDescription(
@@ -380,7 +401,8 @@ h1{color:#00eaff;font-size:30px}
 .console{color:#aaa;margin-bottom:20px}
 .cover{
   width:220px;max-width:85%;border-radius:12px;
-  margin:10px auto 20px;display:block
+  margin:10px auto 20px;display:block;
+  object-fit:contain;min-height:100px
 }
 .description{
   background:#111a2d;border:1px solid #193c55;
@@ -409,40 +431,47 @@ h1{color:#00eaff;font-size:30px}
 <div class="container">
   <h1>${safeName}</h1>
   <div class="console">${safeConsole}</div>
-  <img class="cover" src="${safeCover}" alt="${safeName}">
+  <img class="cover" src="${safeCover}" alt="${safeName}"
+       onerror="this.onerror=null;this.src='${SITE_URL}/img/capas/sem-capa.jpg'">
   <section class="description">
     <h2>Sobre o jogo</h2>
     <p>${safeDescription}</p>
   </section>
   <div class="buttons">
-    <button class="btn" id="play-button" type="button">
+    <a class="btn" id="play-button"
+       href="${escapeHtml(onlineUrl)}"
+       target="_blank" rel="noopener">
       JOGAR ONLINE
-    </button>
+    </a>
     ${downloadUrl ? `
     <a class="btn download" href="${safeDownload}" target="_blank" rel="noopener">
       BAIXAR JOGO
     </a>
     ` : ""}
   </div>
-  <div id="emulator"></div>
 </div>
-<script>
-document.getElementById("play-button").addEventListener("click", function() {
-  const emulator = document.getElementById("emulator");
-  if (!emulator.dataset.loaded) {
-    const frame = document.createElement("iframe");
-    frame.src = ${scriptOnlineUrl};
-    frame.title = ${scriptName};
-    frame.allowFullscreen = true;
-    emulator.appendChild(frame);
-    emulator.dataset.loaded = "true";
-  }
-  emulator.style.display = "block";
-  emulator.scrollIntoView({ behavior: "smooth" });
-});
-</script>
 </body>
 </html>`;
+}
+
+function getPagePath(game) {
+  if (game.pageUrl) {
+    try {
+      const url = new URL(migrateUrl(game.pageUrl));
+      const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+
+      if (path.startsWith("pages/jogos/") && path.endsWith(".html")) {
+        return path;
+      }
+    } catch (error) {
+      // Usa o caminho calculado abaixo.
+    }
+  }
+
+  const consoleName = normalizeConsole(game.console);
+  const slug = slugify(game.slug || game.name);
+
+  return `pages/jogos/${consoleName}/${slug}.html`;
 }
 
 async function github(path, token, options = {}) {
@@ -628,7 +657,7 @@ export async function onRequestPost({ request, env }) {
 
     const pageUrl = `${SITE_URL}/${pagePath}`;
 
-    // RECUPERA E MIGRA OS ENDEREÇOS DO CATÁLOGO EXISTENTE.
+    // Lê o catálogo e migra os endereços antigos.
     let games = [];
 
     try {
@@ -657,7 +686,7 @@ export async function onRequestPost({ request, env }) {
       return sameSlug && sameConsole;
     });
 
-    // CAPA DO JOGO.
+    // Mantém a capa anterior quando nenhuma nova é enviada.
     let coverPath = "";
     let coverUrl = "";
     let coverContent = null;
@@ -719,7 +748,7 @@ export async function onRequestPost({ request, env }) {
       coverUrl = `${SITE_URL}/${coverPath}`;
     }
 
-    // GERA A DESCRIÇÃO AUTOMÁTICA.
+    // Gera a descrição.
     if (description) {
       description = limitDescription(description);
     } else {
@@ -733,17 +762,6 @@ export async function onRequestPost({ request, env }) {
     });
 
     const indexBytes = new TextEncoder().encode(indexHtml);
-
-    const pageHtml = createGamePage({
-      name,
-      consoleName,
-      onlineUrl,
-      coverUrl,
-      downloadUrl,
-      description
-    });
-
-    const pageBytes = new TextEncoder().encode(pageHtml);
 
     const newGame = {
       name,
@@ -766,6 +784,28 @@ export async function onRequestPost({ request, env }) {
 
     games.push(newGame);
 
+    // Gera novamente todas as páginas de detalhes do catálogo.
+    const pageFiles = new Map();
+
+    for (const game of games) {
+      const migratedGame = migrateGame(game);
+      const path = getPagePath(migratedGame);
+
+      const html = createGamePage({
+        name: migratedGame.name,
+        consoleName: normalizeConsole(migratedGame.console),
+        onlineUrl: migratedGame.onlineUrl,
+        coverUrl: migratedGame.coverUrl,
+        downloadUrl: migratedGame.downloadUrl || "",
+        description: migratedGame.description || ""
+      });
+
+      pageFiles.set(
+        path,
+        new TextEncoder().encode(html)
+      );
+    }
+
     const catalogBytes = new TextEncoder().encode(
       JSON.stringify(games, null, 2)
     );
@@ -784,13 +824,13 @@ export async function onRequestPost({ request, env }) {
         content: coverContent
       }] : []),
       {
-        githubPath: pagePath,
-        content: pageBytes
-      },
-      {
         githubPath: "games.json",
         content: catalogBytes
-      }
+      },
+      ...Array.from(pageFiles.entries()).map(([path, content]) => ({
+        githubPath: path,
+        content
+      }))
     ];
 
     validateGitPaths(
@@ -840,7 +880,7 @@ export async function onRequestPost({ request, env }) {
       {
         method: "POST",
         body: JSON.stringify({
-          message: `Publicar jogo: ${name}`,
+          message: `Publicar jogo e atualizar páginas: ${name}`,
           tree: tree.sha,
           parents: [parentSha]
         })
@@ -869,9 +909,10 @@ export async function onRequestPost({ request, env }) {
       description,
       folder: `${gameDirectory}/`,
       indexGenerated: true,
+      updatedGamePages: pageFiles.size,
       rom: romFilename,
       catalogUrl: gamesUrl,
-      message: "Jogo publicado! ROM e index.html criados automaticamente."
+      message: "Jogo publicado! As páginas dos jogos antigos também foram atualizadas."
     });
 
   } catch (error) {
