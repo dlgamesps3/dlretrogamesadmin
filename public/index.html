@@ -45,6 +45,7 @@
         <button data-panel="users">👥 Usuários</button>
         <button data-panel="create">➕ Criar usuário</button>
         <button data-panel="games">🎮 Publicar jogo</button>
+        <button data-panel="requests">📩 Pedidos de jogos</button>
       </nav>
 
       <button id="logout-button" class="logout-button">
@@ -138,7 +139,6 @@
               </select>
             </label>
 
-            <!-- CAMPOS MANUAIS -->
             <div id="manual-fields" class="hidden">
 
               <label>
@@ -194,8 +194,6 @@
             </button>
 
             <p id="create-error" class="error" role="alert"></p>
-
-            <!-- RESULTADO -->
             <div id="generated"></div>
 
           </form>
@@ -287,6 +285,43 @@
             <div id="game-result"></div>
 
           </form>
+        </div>
+      </section>
+
+      <!-- PEDIDOS DE JOGOS -->
+      <section data-view="requests" class="panel-view hidden">
+        <div class="panel-card">
+          <h2>📩 Pedidos de jogos</h2>
+
+          <p class="muted">
+            Veja quais jogos os clientes estão solicitando.
+          </p>
+
+          <button class="primary" type="button" id="refresh-requests">
+            🔄 Atualizar pedidos
+          </button>
+
+          <p id="requests-message" role="status"></p>
+
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Jogo solicitado</th>
+                  <th>Console</th>
+                  <th>Cliente</th>
+                  <th>Usuário</th>
+                  <th>Data</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="requests-body">
+                <tr>
+                  <td colspan="6">Abra esta opção para carregar os pedidos.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
