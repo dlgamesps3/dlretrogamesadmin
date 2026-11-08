@@ -5,4 +5,8 @@ pages_build_output_dir = "./public"
 [[d1_databases]]
 binding = "DB"
 database_name = "dlretrogames"
-database_id = "f672bf88-a1a7-4a42-80ac-878e9ce76623"
+database_id = "f672bf88-a1a7-4a42-80ac-8789ece76623"
+
+[[r2_buckets]]
+binding = "ROMS"
+bucket_name = "dl-retro-roms"
