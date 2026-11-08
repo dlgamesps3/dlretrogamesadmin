@@ -1,7 +1,13 @@
 
 name = "dl-retro-games-admin"
+account_id = "e11594754bfe39eb2c151d92649a3c0d"
 compatibility_date = "2026-10-01"
 pages_build_output_dir = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dlretrogames"
+database_id = "f672bf88-a1a7-4a42-80ac-8789ece76623"
 
 [[r2_buckets]]
 binding = "ROMS"
