@@ -5,14 +5,22 @@ import {
   json
 } from "../../_lib/security.js";
 
+const ALLOWED_ORIGIN = "https://dlretrogames.pages.dev";
+
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "https://dlgamesps3.github.io",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Vary": "Origin"
 };
 
-export async function onRequestOptions() {
+export async function onRequestOptions({ request }) {
+  const origin = request.headers.get("Origin");
+
+  if (origin !== ALLOWED_ORIGIN) {
+    return new Response(null, { status: 403 });
+  }
+
   return new Response(null, {
     status: 204,
     headers: CORS_HEADERS
@@ -21,6 +29,12 @@ export async function onRequestOptions() {
 
 export async function onRequestPost({ request, env }) {
   try {
+    const origin = request.headers.get("Origin");
+
+    if (origin && origin !== ALLOWED_ORIGIN) {
+      return json({ error: "Origem não autorizada." }, 403);
+    }
+
     const { username, password } = await request.json();
 
     const user = await env.DB.prepare(
