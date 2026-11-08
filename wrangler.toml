@@ -1,6 +1,5 @@
 
 name = "dl-retro-games-admin"
-account_id = "e11594754bfe39eb2c151d92649a3c0d"
 compatibility_date = "2026-10-01"
 pages_build_output_dir = "./public"
 
