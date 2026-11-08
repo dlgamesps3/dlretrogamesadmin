@@ -102,7 +102,8 @@ const panelTitles = {
   dashboard: "Dashboard",
   users: "Usuários",
   create: "Criar usuário",
-  games: "Publicar jogo"
+  games: "Publicar jogo",
+  requests: "Pedidos de jogos"
 };
 
 function openPanel(target) {
@@ -128,6 +129,7 @@ function openPanel(target) {
 
   if (target === "dashboard") loadDashboard();
   if (target === "users") loadUsers();
+  if (target === "requests") loadRequests();
 }
 
 document.querySelectorAll("[data-panel]").forEach(button => {
@@ -334,6 +336,138 @@ $("#search")?.addEventListener("input", event => {
 
   renderUsers(filtered);
 });
+
+/* =========================
+   PEDIDOS DE JOGOS
+========================= */
+
+const requestsBody = $("#requests-body");
+const requestsMessage = $("#requests-message");
+const refreshRequestsButton = $("#refresh-requests");
+
+function getRequestCustomerName(request) {
+  const note = String(request.note || "");
+  const match = note.match(/^Nome:\s*(.*)$/im);
+
+  return match && match[1].trim()
+    ? match[1].trim()
+    : "Nome não informado";
+}
+
+function formatRequestDate(value) {
+  if (!value) return "Não informada";
+
+  const date = new Date(
+    String(value).includes("Z") ? value : value.replace(" ", "T") + "Z"
+  );
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("pt-BR");
+}
+
+async function loadRequests() {
+  if (!requestsBody) return;
+
+  requestsBody.innerHTML =
+    "<tr><td colspan='6'>Carregando pedidos...</td></tr>";
+
+  if (requestsMessage) {
+    requestsMessage.textContent = "";
+  }
+
+  if (refreshRequestsButton) {
+    refreshRequestsButton.disabled = true;
+    refreshRequestsButton.textContent = "CARREGANDO...";
+  }
+
+  try {
+    const data = await api("/api/admin/requests");
+
+    const requests = Array.isArray(data)
+      ? data
+      : (data.requests || []);
+
+    renderRequests(requests);
+
+    if (requestsMessage) {
+      requestsMessage.textContent =
+        `${requests.length} pedido(s) encontrado(s).`;
+    }
+
+  } catch (error) {
+    requestsBody.innerHTML = "";
+
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+
+    cell.colSpan = 6;
+    cell.textContent = error.message;
+
+    row.appendChild(cell);
+    requestsBody.appendChild(row);
+
+    if (requestsMessage) {
+      requestsMessage.textContent = "Erro ao carregar os pedidos.";
+    }
+
+  } finally {
+    if (refreshRequestsButton) {
+      refreshRequestsButton.disabled = false;
+      refreshRequestsButton.textContent = "🔄 Atualizar pedidos";
+    }
+  }
+}
+
+function renderRequests(requests) {
+  if (!requestsBody) return;
+
+  requestsBody.innerHTML = "";
+
+  if (!requests.length) {
+    requestsBody.innerHTML =
+      "<tr><td colspan='6'>Nenhum pedido recebido ainda.</td></tr>";
+    return;
+  }
+
+  requests.forEach(request => {
+    const row = document.createElement("tr");
+
+    const gameCell = document.createElement("td");
+    gameCell.textContent = request.game_name || "Sem nome";
+
+    const consoleCell = document.createElement("td");
+    consoleCell.textContent = request.console || "Não informado";
+
+    const customerCell = document.createElement("td");
+    const customerName = document.createElement("strong");
+
+    customerName.textContent = getRequestCustomerName(request);
+    customerCell.appendChild(customerName);
+
+    const usernameCell = document.createElement("td");
+    usernameCell.textContent = request.username || "Desconhecido";
+
+    const dateCell = document.createElement("td");
+    dateCell.textContent = formatRequestDate(request.created_at);
+
+    const statusCell = document.createElement("td");
+    statusCell.textContent = request.status || "Pendente";
+
+    row.append(
+      gameCell,
+      consoleCell,
+      customerCell,
+      usernameCell,
+      dateCell,
+      statusCell
+    );
+
+    requestsBody.appendChild(row);
+  });
+}
+
+refreshRequestsButton?.addEventListener("click", loadRequests);
 
 /* =========================
    CRIAR USUÁRIO
