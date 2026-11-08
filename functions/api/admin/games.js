@@ -1,8 +1,10 @@
+
 import { requireAdmin, json } from "../../_lib/security.js";
 
 const OWNER = "dlgamesps3";
 const REPO = "dlretrogames";
 const BRANCH = "main";
+const SITE_URL = "https://dlretrogames.pages.dev";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
@@ -21,7 +23,6 @@ function slugify(value) {
     .slice(0, 70);
 }
 
-// LIMITA A DESCRIÇÃO A 150 CARACTERES.
 function limitDescription(text) {
   text = String(text || "").replace(/\s+/g, " ").trim();
 
@@ -33,7 +34,27 @@ function limitDescription(text) {
   return shortened.trimEnd() + "...";
 }
 
-// GERA DESCRIÇÃO AUTOMÁTICA PELA WIKIPÉDIA.
+function migrateUrl(url) {
+  if (!url) return "";
+
+  const oldPrefix = `https://${OWNER}.github.io/${REPO}`;
+
+  if (String(url).startsWith(oldPrefix)) {
+    return SITE_URL + String(url).slice(oldPrefix.length);
+  }
+
+  return url;
+}
+
+function migrateGame(game) {
+  return {
+    ...game,
+    onlineUrl: migrateUrl(game.onlineUrl),
+    pageUrl: migrateUrl(game.pageUrl),
+    coverUrl: migrateUrl(game.coverUrl)
+  };
+}
+
 async function generateDescription(name, consoleName) {
   for (const language of ["pt", "en"]) {
     try {
@@ -244,14 +265,9 @@ function createEmulatorIndex({
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>${safeName} - DL RETRO GAMES</title>
-
 <style>
-* {
-  box-sizing: border-box;
-}
-
+* { box-sizing: border-box; }
 html, body {
   margin: 0;
   padding: 0;
@@ -261,13 +277,11 @@ html, body {
   color: #fff;
   font-family: Arial, sans-serif;
 }
-
 body {
   display: flex;
   flex-direction: column;
   align-items: center;
 }
-
 .header {
   width: 100%;
   padding: 15px;
@@ -275,19 +289,16 @@ body {
   background: #0b1426;
   border-bottom: 1px solid #00d9ff;
 }
-
 .header h1 {
   margin: 0;
   color: #00eaff;
   font-size: 22px;
 }
-
 .header p {
   margin: 7px 0 0;
   color: #aaa;
   font-size: 13px;
 }
-
 #game {
   width: 100%;
   max-width: 1200px;
@@ -295,7 +306,6 @@ body {
   margin: 15px auto;
   background: #000;
 }
-
 .footer {
   padding: 15px;
   color: #777;
@@ -304,20 +314,15 @@ body {
 }
 </style>
 </head>
-
 <body>
-
 <header class="header">
   <h1>${safeName}</h1>
   <p>${safeConsole} • DL RETRO GAMES</p>
 </header>
-
 <div id="game"></div>
-
 <div class="footer">
   DL RETRO GAMES - Jogos clássicos
 </div>
-
 <script>
 window.EJS_player = "#game";
 window.EJS_core = ${JSON.stringify(core)};
@@ -325,14 +330,9 @@ window.EJS_gameUrl = ${safeRomUrl};
 window.EJS_gameName = ${safeGameName};
 window.EJS_pathtodata =
   "https://cdn.emulatorjs.org/stable/data/";
-
 window.EJS_startOnLoaded = true;
 </script>
-
-<script
-  src="https://cdn.emulatorjs.org/stable/data/loader.js">
-</script>
-
+<script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
 </body>
 </html>`;
 }
@@ -368,9 +368,7 @@ function createGamePage({
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>${safeName} - DL RETRO GAMES</title>
-
 <style>
 *{box-sizing:border-box}
 body{
@@ -407,38 +405,30 @@ h1{color:#00eaff;font-size:30px}
 }
 </style>
 </head>
-
 <body>
 <div class="container">
   <h1>${safeName}</h1>
   <div class="console">${safeConsole}</div>
-
   <img class="cover" src="${safeCover}" alt="${safeName}">
-
   <section class="description">
     <h2>Sobre o jogo</h2>
     <p>${safeDescription}</p>
   </section>
-
   <div class="buttons">
     <button class="btn" id="play-button" type="button">
       JOGAR ONLINE
     </button>
-
     ${downloadUrl ? `
     <a class="btn download" href="${safeDownload}" target="_blank" rel="noopener">
       BAIXAR JOGO
     </a>
     ` : ""}
   </div>
-
   <div id="emulator"></div>
 </div>
-
 <script>
 document.getElementById("play-button").addEventListener("click", function() {
   const emulator = document.getElementById("emulator");
-
   if (!emulator.dataset.loaded) {
     const frame = document.createElement("iframe");
     frame.src = ${scriptOnlineUrl};
@@ -447,12 +437,10 @@ document.getElementById("play-button").addEventListener("click", function() {
     emulator.appendChild(frame);
     emulator.dataset.loaded = "true";
   }
-
   emulator.style.display = "block";
   emulator.scrollIntoView({ behavior: "smooth" });
 });
 </script>
-
 </body>
 </html>`;
 }
@@ -628,22 +616,19 @@ export async function onRequestPost({ request, env }) {
       token
     );
 
-    const gamesUrl =
-      `https://${OWNER}.github.io/${REPO}/games.json`;
+    const gamesUrl = `${SITE_URL}/games.json`;
 
     const gameDirectory =
       `pages/jogos-online/${consoleName}/${slug}`;
 
-    const onlineUrl =
-      `https://${OWNER}.github.io/${REPO}/${gameDirectory}/`;
+    const onlineUrl = `${SITE_URL}/${gameDirectory}/`;
 
     const pagePath =
       `pages/jogos/${consoleName}/${slug}.html`;
 
-    const pageUrl =
-      `https://${OWNER}.github.io/${REPO}/${pagePath}`;
+    const pageUrl = `${SITE_URL}/${pagePath}`;
 
-    // RECUPERA O CATÁLOGO EXISTENTE.
+    // RECUPERA E MIGRA OS ENDEREÇOS DO CATÁLOGO EXISTENTE.
     let games = [];
 
     try {
@@ -655,6 +640,8 @@ export async function onRequestPost({ request, env }) {
       games = JSON.parse(decodeBase64(existing.content));
 
       if (!Array.isArray(games)) games = [];
+
+      games = games.map(migrateGame);
 
     } catch (error) {
       if (!String(error.message).includes("Not Found")) {
@@ -718,32 +705,27 @@ export async function onRequestPost({ request, env }) {
       }
 
       coverPath = `${gameDirectory}/capa${coverExtension}`;
-
-      coverUrl =
-        `https://${OWNER}.github.io/${REPO}/${coverPath}`;
+      coverUrl = `${SITE_URL}/${coverPath}`;
 
       coverContent = new Uint8Array(
         await cover.arrayBuffer()
       );
 
     } else if (previousGame && previousGame.coverUrl) {
-      coverUrl = previousGame.coverUrl;
+      coverUrl = migrateUrl(previousGame.coverUrl);
 
     } else {
       coverPath = "img/capas/sem-capa.jpg";
-
-      coverUrl =
-        `https://${OWNER}.github.io/${REPO}/${coverPath}`;
+      coverUrl = `${SITE_URL}/${coverPath}`;
     }
 
-    // GERA A DESCRIÇÃO AUTOMÁTICA QUANDO NÃO FOI DIGITADA.
+    // GERA A DESCRIÇÃO AUTOMÁTICA.
     if (description) {
       description = limitDescription(description);
     } else {
       description = await generateDescription(name, consoleName);
     }
 
-    // GERA AUTOMATICAMENTE O INDEX.HTML DO EMULADOR.
     const indexHtml = createEmulatorIndex({
       name,
       consoleName,
@@ -752,7 +734,6 @@ export async function onRequestPost({ request, env }) {
 
     const indexBytes = new TextEncoder().encode(indexHtml);
 
-    // GERA A PÁGINA DE APRESENTAÇÃO.
     const pageHtml = createGamePage({
       name,
       consoleName,
@@ -775,10 +756,8 @@ export async function onRequestPost({ request, env }) {
       slug
     };
 
-    // ATUALIZA SEM DUPLICAR O JOGO.
     games = games.filter(game => {
       const sameSlug = slugify(game.slug || game.name) === slug;
-
       const sameConsole =
         normalizeConsole(game.console) === consoleName;
 
@@ -791,7 +770,6 @@ export async function onRequestPost({ request, env }) {
       JSON.stringify(games, null, 2)
     );
 
-    // ARQUIVOS QUE SERÃO PUBLICADOS.
     const files = [
       {
         githubPath: `${gameDirectory}/index.html`,
@@ -821,7 +799,6 @@ export async function onRequestPost({ request, env }) {
       }))
     );
 
-    // CRIA OS ARQUIVOS NO GITHUB.
     const blobs = [];
 
     for (const file of files) {
