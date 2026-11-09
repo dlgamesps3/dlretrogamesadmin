@@ -5,6 +5,7 @@ const OWNER = "dlgamesps3";
 const REPO = "dlretrogames";
 const BRANCH = "main";
 const SITE_URL = "https://dlretrogames.pages.dev";
+const ADMIN_URL = "https://dlretrogamesadmin.pages.dev";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
@@ -265,21 +266,23 @@ function isRom(filename) {
   return ROM_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
+/* EMULADOR COM ROM PROTEGIDA NO R2 */
+
 function createEmulatorIndex({
   name,
   consoleName,
-  romFilename
+  r2Key
 }) {
   const core = getCore(consoleName);
 
   const safeName = escapeHtml(name);
   const safeConsole = escapeHtml(consoleName);
 
-  const romUrl = "./" +
-    romFilename.split("/").map(encodeURIComponent).join("/");
+  const safeR2Key = JSON.stringify(r2Key)
+    .replace(/</g, "\\u003c");
 
-  const safeRomUrl = JSON.stringify(romUrl);
-  const safeGameName = JSON.stringify(name);
+  const safeGameName = JSON.stringify(name)
+    .replace(/</g, "\\u003c");
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -326,6 +329,14 @@ body {
   min-height: 70vh;
   margin: 15px auto;
   background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#loading-message {
+  color: #00eaff;
+  padding: 25px;
+  text-align: center;
 }
 .footer {
   padding: 15px;
@@ -340,23 +351,95 @@ body {
   <h1>${safeName}</h1>
   <p>${safeConsole} • DL RETRO GAMES</p>
 </header>
-<div id="game"></div>
+
+<div id="game">
+  <div id="loading-message">Verificando acesso e carregando jogo...</div>
+</div>
+
 <div class="footer">
   DL RETRO GAMES - Jogos clássicos
 </div>
+
 <script>
+const r2Key = ${safeR2Key};
+
 window.EJS_player = "#game";
 window.EJS_core = ${JSON.stringify(core)};
-window.EJS_gameUrl = ${safeRomUrl};
 window.EJS_gameName = ${safeGameName};
 window.EJS_pathtodata =
   "https://cdn.emulatorjs.org/stable/data/";
 window.EJS_startOnLoaded = true;
+
+function showError(message) {
+  const game = document.getElementById("game");
+
+  game.innerHTML = "";
+
+  const box = document.createElement("div");
+  box.style.cssText =
+    "color:#ff7777;padding:25px;text-align:center;font-size:16px;";
+
+  box.textContent = message;
+  game.appendChild(box);
+}
+
+async function startGame() {
+  const token = sessionStorage.getItem("dlrg_customer_token");
+
+  if (!token) {
+    throw new Error("Faça login no site para jogar este jogo VIP.");
+  }
+
+  const response = await fetch(
+    "${ADMIN_URL}/api/rom?key=" + encodeURIComponent(r2Key),
+    {
+      method: "GET",
+      headers: {
+        Authorization: "Bearer " + token
+      },
+      cache: "no-store"
+    }
+  );
+
+  if (!response.ok) {
+    let message = "Não foi possível carregar a ROM.";
+
+    try {
+      const data = await response.json();
+      if (data.error) message = data.error;
+    } catch (error) {}
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+
+  if (!blob.size) {
+    throw new Error("A ROM recebida está vazia.");
+  }
+
+  window.EJS_gameUrl = URL.createObjectURL(blob);
+
+  const loader = document.createElement("script");
+  loader.src =
+    "https://cdn.emulatorjs.org/stable/data/loader.js";
+
+  loader.onerror = function() {
+    showError("Erro ao carregar o emulador. Tente novamente.");
+  };
+
+  document.body.appendChild(loader);
+}
+
+startGame().catch(error => {
+  showError(error.message || "Erro ao iniciar o jogo.");
+});
 </script>
-<script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
 </body>
 </html>`;
 }
+
+/* PÁGINA DE DETALHES */
 
 function createGamePage({
   name,
@@ -368,7 +451,9 @@ function createGamePage({
 }) {
   const safeName = escapeHtml(name);
   const safeConsole = escapeHtml(consoleName);
-  const safeCover = escapeHtml(coverUrl || `${SITE_URL}/img/capas/sem-capa.jpg`);
+  const safeCover = escapeHtml(
+    coverUrl || `${SITE_URL}/img/capas/sem-capa.jpg`
+  );
   const safeDownload = escapeHtml(downloadUrl);
 
   const finalDescription = limitDescription(
@@ -377,12 +462,6 @@ function createGamePage({
   );
 
   const safeDescription = escapeHtml(finalDescription);
-
-  const scriptOnlineUrl = JSON.stringify(onlineUrl)
-    .replace(/</g, "\\u003c");
-
-  const scriptName = JSON.stringify(name)
-    .replace(/</g, "\\u003c");
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -420,31 +499,32 @@ h1{color:#00eaff;font-size:30px}
   text-decoration:none;border:0;cursor:pointer;font-size:15px
 }
 .btn.download{background:#00e676}
-#emulator{display:none;margin-top:25px}
-#emulator iframe{
-  width:100%;height:70vh;min-height:400px;
-  border:2px solid #00d9ff;border-radius:10px;background:#000
-}
 </style>
 </head>
 <body>
 <div class="container">
   <h1>${safeName}</h1>
   <div class="console">${safeConsole}</div>
+
   <img class="cover" src="${safeCover}" alt="${safeName}"
        onerror="this.onerror=null;this.src='${SITE_URL}/img/capas/sem-capa.jpg'">
+
   <section class="description">
     <h2>Sobre o jogo</h2>
     <p>${safeDescription}</p>
   </section>
+
   <div class="buttons">
     <a class="btn" id="play-button"
-       href="${escapeHtml(onlineUrl)}"
-       target="_blank" rel="noopener">
+       href="${escapeHtml(onlineUrl)}">
       JOGAR ONLINE
     </a>
+
     ${downloadUrl ? `
-    <a class="btn download" href="${safeDownload}" target="_blank" rel="noopener">
+    <a class="btn download"
+       href="${safeDownload}"
+       target="_blank"
+       rel="noopener">
       BAIXAR JOGO
     </a>
     ` : ""}
@@ -528,6 +608,8 @@ function validateGitPaths(files) {
   }
 }
 
+/* PUBLICAÇÃO */
+
 export async function onRequestPost({ request, env }) {
   try {
     if (!(await requireAdmin(request, env))) {
@@ -537,6 +619,12 @@ export async function onRequestPost({ request, env }) {
     if (!env.GITHUB_TOKEN) {
       return json({
         error: "Configure GITHUB_TOKEN no Cloudflare."
+      }, 500);
+    }
+
+    if (!env.ROMS) {
+      return json({
+        error: "Bucket R2 ROMS não está configurado no projeto dlretrogamesadmin."
       }, 500);
     }
 
@@ -755,10 +843,27 @@ export async function onRequestPost({ request, env }) {
       description = await generateDescription(name, consoleName);
     }
 
+    // Chave privada da ROM no R2.
+    const r2Key =
+      `roms/${consoleName}/${slug}/${romFilename}`;
+
+    // Envia o binário diretamente ao R2.
+    await env.ROMS.put(r2Key, romContent, {
+      httpMetadata: {
+        contentType: "application/octet-stream",
+        cacheControl: "private, no-store"
+      },
+      customMetadata: {
+        game: name,
+        console: consoleName
+      }
+    });
+
+    // Página do emulador agora usa a API VIP.
     const indexHtml = createEmulatorIndex({
       name,
       consoleName,
-      romFilename
+      r2Key
     });
 
     const indexBytes = new TextEncoder().encode(indexHtml);
@@ -810,14 +915,11 @@ export async function onRequestPost({ request, env }) {
       JSON.stringify(games, null, 2)
     );
 
+    // IMPORTANTE: ROM NÃO ENTRA MAIS NESTA LISTA.
     const files = [
       {
         githubPath: `${gameDirectory}/index.html`,
         content: indexBytes
-      },
-      {
-        githubPath: `${gameDirectory}/${romFilename}`,
-        content: romContent
       },
       ...(coverContent ? [{
         githubPath: coverPath,
@@ -911,8 +1013,10 @@ export async function onRequestPost({ request, env }) {
       indexGenerated: true,
       updatedGamePages: pageFiles.size,
       rom: romFilename,
+      storage: "R2 privado",
+      romKey: r2Key,
       catalogUrl: gamesUrl,
-      message: "Jogo publicado! As páginas dos jogos antigos também foram atualizadas."
+      message: "Jogo publicado! A ROM foi armazenada no R2 privado e as páginas foram atualizadas."
     });
 
   } catch (error) {
