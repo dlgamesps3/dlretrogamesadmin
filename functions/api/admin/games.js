@@ -439,7 +439,7 @@ startGame().catch(error => {
 </html>`;
 }
 
-/* PÁGINA DE DETALHES */
+/* PÁGINA DE DETALHES COM DOWNLOAD VIP PELO R2 */
 
 function createGamePage({
   name,
@@ -447,7 +447,8 @@ function createGamePage({
   onlineUrl,
   coverUrl,
   downloadUrl,
-  description
+  description,
+  r2Key
 }) {
   const safeName = escapeHtml(name);
   const safeConsole = escapeHtml(consoleName);
@@ -456,12 +457,38 @@ function createGamePage({
   );
   const safeDownload = escapeHtml(downloadUrl);
 
+  const safeR2Key = JSON.stringify(r2Key || "")
+    .replace(/</g, "\\u003c");
+
+  const safeRomFilename = JSON.stringify(
+    String(r2Key || "").split("/").pop() || "jogo.rom"
+  ).replace(/</g, "\\u003c");
+
   const finalDescription = limitDescription(
     description ||
     `Conheça ${name}, um clássico do console ${consoleName}. Prepare-se para reviver essa aventura retrô!`
   );
 
   const safeDescription = escapeHtml(finalDescription);
+
+  let downloadButton = "";
+
+  if (r2Key) {
+    downloadButton = `
+    <button class="btn download" id="download-button" type="button">
+      BAIXAR JOGO
+    </button>
+    `;
+  } else if (downloadUrl) {
+    downloadButton = `
+    <a class="btn download"
+       href="${safeDownload}"
+       target="_blank"
+       rel="noopener">
+      BAIXAR JOGO
+    </a>
+    `;
+  }
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -496,9 +523,17 @@ h1{color:#00eaff;font-size:30px}
 .btn{
   display:inline-block;padding:15px 24px;border-radius:8px;
   background:#00d9ff;color:#001018;font-weight:bold;
-  text-decoration:none;border:0;cursor:pointer;font-size:15px
+  text-decoration:none;border:0;cursor:pointer;font-size:15px;
+  font-family:Arial,sans-serif
 }
 .btn.download{background:#00e676}
+.btn:disabled{opacity:.6;cursor:wait}
+#download-message{
+  min-height:22px;
+  margin:12px auto;
+  color:#00eaff;
+  font-size:14px;
+}
 </style>
 </head>
 <body>
@@ -520,16 +555,90 @@ h1{color:#00eaff;font-size:30px}
       JOGAR ONLINE
     </a>
 
-    ${downloadUrl ? `
-    <a class="btn download"
-       href="${safeDownload}"
-       target="_blank"
-       rel="noopener">
-      BAIXAR JOGO
-    </a>
-    ` : ""}
+    ${downloadButton}
   </div>
+
+  <div id="download-message" aria-live="polite"></div>
 </div>
+
+<script>
+const ROM_KEY = ${safeR2Key};
+const ROM_FILENAME = ${safeRomFilename};
+
+const downloadButton = document.getElementById("download-button");
+const downloadMessage = document.getElementById("download-message");
+
+if (downloadButton) {
+  downloadButton.addEventListener("click", async function() {
+    const token = sessionStorage.getItem("dlrg_customer_token");
+
+    if (!token) {
+      downloadMessage.textContent =
+        "Faça login no site para baixar este jogo VIP.";
+      return;
+    }
+
+    downloadButton.disabled = true;
+    downloadButton.textContent = "VERIFICANDO ACESSO...";
+    downloadMessage.textContent = "Preparando seu download...";
+
+    try {
+      const response = await fetch(
+        "${ADMIN_URL}/api/rom?key=" + encodeURIComponent(ROM_KEY),
+        {
+          method: "GET",
+          headers: {
+            Authorization: "Bearer " + token
+          },
+          cache: "no-store"
+        }
+      );
+
+      if (!response.ok) {
+        let message = "Não foi possível baixar a ROM.";
+
+        try {
+          const data = await response.json();
+          if (data.error) message = data.error;
+        } catch (error) {}
+
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+
+      if (!blob.size) {
+        throw new Error("O arquivo recebido está vazio.");
+      }
+
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = ROM_FILENAME;
+      link.style.display = "none";
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      downloadMessage.textContent =
+        "Download iniciado com sucesso!";
+
+      setTimeout(function() {
+        URL.revokeObjectURL(objectUrl);
+      }, 60000);
+
+    } catch (error) {
+      downloadMessage.textContent =
+        error.message || "Erro ao baixar o jogo.";
+    } finally {
+      downloadButton.disabled = false;
+      downloadButton.textContent = "BAIXAR JOGO";
+    }
+  });
+}
+</script>
 </body>
 </html>`;
 }
@@ -859,7 +968,7 @@ export async function onRequestPost({ request, env }) {
       }
     });
 
-    // Página do emulador agora usa a API VIP.
+    // Página do emulador usa a API VIP.
     const indexHtml = createEmulatorIndex({
       name,
       consoleName,
@@ -876,7 +985,8 @@ export async function onRequestPost({ request, env }) {
       downloadUrl: downloadUrl || "",
       coverUrl,
       description,
-      slug
+      slug,
+      r2Key
     };
 
     games = games.filter(game => {
@@ -902,7 +1012,8 @@ export async function onRequestPost({ request, env }) {
         onlineUrl: migratedGame.onlineUrl,
         coverUrl: migratedGame.coverUrl,
         downloadUrl: migratedGame.downloadUrl || "",
-        description: migratedGame.description || ""
+        description: migratedGame.description || "",
+        r2Key: migratedGame.r2Key || ""
       });
 
       pageFiles.set(
@@ -915,7 +1026,7 @@ export async function onRequestPost({ request, env }) {
       JSON.stringify(games, null, 2)
     );
 
-    // IMPORTANTE: ROM NÃO ENTRA MAIS NESTA LISTA.
+    // ROM NÃO ENTRA NA LISTA DE ARQUIVOS DO GITHUB.
     const files = [
       {
         githubPath: `${gameDirectory}/index.html`,
